@@ -1,4 +1,5 @@
 import logging
+import socket
 import subprocess
 import threading
 import time
@@ -8,23 +9,34 @@ from typing import Union
 
 class RetroArchAPI:
 
-    def __init__(self, retroarch: str, core: str, rom: str):
+    _socket = None
+    _ip = "localhost"
+    _port = 55355
+
+    def __init__(self, retroarch: str, core: str, rom: str, enable_stdin: bool = False):
         """Run a RetroArch process and prepare it for stdin communication.
 
         :param retroarch: The path to a retroarch executable.
         :param core: The path to the libretro core used for running the game.
         :param rom: The path to the rom of the game to be run.
+        :param enable_stdin: If enabled, will try to use stdin rather than network commands to control RetroArch.
         """
         # Init the RetroArch process
         self._process = Popen([retroarch, "-L", core, rom, "--appendconfig", "config.cfg", "--verbose"], bufsize=1,
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                              stdin=subprocess.PIPE, stdout=None, stderr=None, text=True)
 
         # Init the stdout monitor thread
-        self._stdout_queue = []
-        self._stdout_event = threading.Event()
-        self._stdout_lock = threading.Lock()
-        stdout_monitor = threading.Thread(target=self._monitor_stdout, daemon=True)
-        stdout_monitor.start()
+        if enable_stdin:
+            self._stdout_queue = []
+            self._stdout_event = threading.Event()
+            self._stdout_lock = threading.Lock()
+            stdout_monitor = threading.Thread(target=self._monitor_stdout, daemon=True)
+            stdout_monitor.start()
+
+        # Init the network socket
+        if not enable_stdin:
+            self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+            self._socket.settimeout(3)
 
         logging.info("Finished initialisation.")
 
@@ -75,6 +87,24 @@ class RetroArchAPI:
         logging.info("Writing command to stdin: "+command.rstrip())
         self._process.stdin.write(command)
 
+    def _get_network_response(self, bufsize: int) -> bytes:
+        """Receive a network response from RetroArch.
+
+        This will time out and throw an exception after no response is captured for 3 seconds (default).
+
+        :param bufsize: The maximum number of bytes to read.
+        :return: Bytes received from RetroArch."""
+        response, address = self._socket.recvfrom(bufsize)
+        logging.debug(f"Received network response: {response}")
+        return response
+
+    def _send_network_cmd(self, command: str):
+        """Send a command to RetroArch via the network command interface."""
+        command = command.rstrip()
+        logging.debug("Send network cmd: " + command)
+        command += "\n"
+        self._socket.sendto(command.encode(), (self._ip, self._port))
+
     def cmd_frame_advance(self):
         # TODO Seems to be kinda wacky. Needs more research.
         self._write_stdin("FRAMEADVANCE")
@@ -82,26 +112,22 @@ class RetroArchAPI:
     def cmd_get_status(self) -> Union[str, None]:
         """Get information about the currently running content.
 
-        :return: A string containing the content's CRC32 checksum, or None if no content is currently running.
+        :return: The status string returned by RetroArch.
         """
-        self._write_stdin("GET_STATUS")
-        # Wait for the monitoring thread to update the stdout queue.
-        self._stdout_event.wait(3)
-        status = self._read_stdout()
-
-        if "[Content]" not in status:
-            # Something went wrong along the way and this is likely not the actual status line.
-            logging.error("Failed to get status response line!")
-            return None
-
-        # A typical return message prefixes the actual checksum with a nice, easy string to split on.
-        status = status.rstrip().split("CRC32: ")[1]
-        status = status.strip(".")
+        self._send_network_cmd("GET_STATUS")
+        status = self._get_network_response(64)
+        status = status.decode().rstrip()
         return status
+
+    def cmd_get_version(self) -> str:
+        """Get RetroArch's running version."""
+        self._send_network_cmd("VERSION")
+        response = self._get_network_response(16)
+        return response.decode().rstrip()
 
     def cmd_pause_toggle(self):
         """Toggle pausing the currently running content."""
-        self._write_stdin("PAUSE_TOGGLE")
+        self._send_network_cmd("PAUSE_TOGGLE")
 
     def cmd_quit(self, confirm: bool = False):
         """Exit RetroArch.
@@ -111,37 +137,47 @@ class RetroArchAPI:
 
         :param confirm: Skip RetroArch asking for confirmation and quit immediately.
         """
-        self._write_stdin("QUIT")
+        self._send_network_cmd("QUIT")
         if confirm:
             time.sleep(0.1)
-            self._write_stdin("QUIT")
+            self._send_network_cmd("QUIT")
 
     def cmd_save_state(self):
         """Save the game state to the currently selected slot."""
-        self._write_stdin("SAVE_STATE")
+        self._send_network_cmd("SAVE_STATE")
 
     def cmd_load_state(self):
         """Load a game state from the currently selected slot."""
-        self._write_stdin("LOAD_STATE")
+        self._send_network_cmd("LOAD_STATE")
 
     def cmd_read_memory(self, address: str, byte_count: int) -> bytearray:
         """Read memory from the currently running content.
 
         Requires a core with memory mapping capabilities, otherwise RetroArch cannot read/write anything and this
-        function will have no effect.
+        function will have no effect. Does not work via stdin.
 
-        :param address: The address to read from, formatted in hex (e.g. 0xff)
+        :param address: The address to read from, formatted in hex (e.g. 00ff)
         :param byte_count: The number of bytes to read.
         :return: A bytearray containing the bytes read at the specified address.
         """
-        # TODO currently broken. Not returning memory? Requires network connection instead of stdin.
-        if byte_count <= 0:
-            byte_count = 1
+        # Ensure any 0x prefixes are stripped and not sent along with the command.
+        if address.startswith("0x"):
+            address = address[2:]
+        self._send_network_cmd(f"READ_CORE_MEMORY {address} {byte_count}")
 
-        self._write_stdin(f"READ_CORE_MEMORY {address} {byte_count}")
-        # Wait for the monitoring thread to update with the response
-        if self._stdout_event.wait(timeout=5):
-            response = self._read_stdout()
-            print(response)
-        else:
-            print("WAITED IN VAIN FOR THIS MEMORY RESPONSE")
+        response = self._get_network_response(4096)
+
+        if b"no memory map" in response:
+            logging.error("Running core does not provide a memory map!")
+            raise RuntimeError("The current running core does not provide a memory map. Cannot read from memory.")
+
+        # This decodes the received bytes into a string, and then re-encodes it into a byte array.
+        # Ultimately the simplest way to remove whitespace bytes in between the actual data.
+        response = response.removeprefix(b"READ_CORE_MEMORY ").rstrip().decode()
+        # The first "byte" in the remaining string is actually the address, filter it here.
+        index = response.find(" ")
+        b_arr = bytearray.fromhex(response[index+1:])
+
+        return b_arr
+
+

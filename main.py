@@ -23,15 +23,18 @@ def main():
     log = logging.getLogger(__name__)
 
     retro = retroarch_api.RetroArchAPI(retroarch_path, core_path, rom_path)
+
     time.sleep(10)
     print("Testing commands")
     retro.cmd_pause_toggle()
     time.sleep(1)
+    retro.cmd_get_version()
     retro.cmd_pause_toggle()
     time.sleep(1)
     print(retro.cmd_get_status())
     time.sleep(1)
-    retro.cmd_read_memory("96", 1)
+    print(retro.cmd_read_memory("004e", 1))
+    print(retro.cmd_read_memory("010A", 2))
 
     time.sleep(3)
     retro.cmd_quit(True)
