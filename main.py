@@ -26,18 +26,20 @@ def main():
 
     time.sleep(10)
     print("Testing commands")
-    retro.cmd_pause_toggle()
+    retro.pause_toggle()
     time.sleep(1)
-    retro.cmd_get_version()
-    retro.cmd_pause_toggle()
+    print(retro.get_version())
+    retro.get_status()
+    retro.pause_toggle()
     time.sleep(1)
-    print(retro.cmd_get_status())
+    print(retro.get_status())
     time.sleep(1)
-    print(retro.cmd_read_memory("004e", 1))
-    print(retro.cmd_read_memory("010A", 2))
+    print(retro.read_memory("004e", 1))
+    print(retro.read_memory("010A", 2))
+    print(retro.read_memory("0068", 8))
 
     time.sleep(3)
-    retro.cmd_quit(True)
+    retro.quit(True)
 
 
 if __name__ == "__main__":

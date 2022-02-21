@@ -14,7 +14,7 @@ class RetroArchAPI:
     _port = 55355
 
     def __init__(self, retroarch: str, core: str, rom: str, enable_stdin: bool = False):
-        """Run a RetroArch process and prepare it for stdin communication.
+        """Run a RetroArch process and prepare it for network or stdin communication.
 
         :param retroarch: The path to a retroarch executable.
         :param core: The path to the libretro core used for running the game.
@@ -127,21 +127,30 @@ class RetroArchAPI:
         # TODO Seems to be kinda wacky. Needs more research.
         self._send_network_cmd("FRAMEADVANCE")
 
-    def get_status(self) -> str:
+    def get_status(self) -> Tuple[str]:
         """Get information about the currently running content.
 
-        :return: The status string returned by RetroArch.
+        :return: A tuple containing pause status, platform name, content name, and crc32 checksum.
         """
         self._send_network_cmd("GET_STATUS")
         status = self._get_network_response(64)
-        cmd, status_str = self._process_response(status)
-        return status_str
+
+        # Discard fluff and unhelpful parts.
+        status_str = self._process_response(status)[1]
+        status_str = status_str.replace("crc32=", "")
+
+        # Handle pause status separately.
+        stat_list = [status_str.split(" ")[0]]
+        # Add comma-separated platform,content,crc32checksum
+        stat_list += [x for x in status_str.split(" ")[1].split(",")]
+
+        return tuple(stat_list)
 
     def get_version(self) -> str:
         """Get RetroArch's running version."""
         self._send_network_cmd("VERSION")
         response = self._get_network_response(16)
-        return response.decode().rstrip()
+        return self._process_response(response)[1]
 
     def pause_toggle(self):
         """Toggle pausing the currently running content."""
@@ -189,12 +198,10 @@ class RetroArchAPI:
             logging.error("Running core does not provide a memory map!")
             raise RuntimeError("The current running core does not provide a memory map. Cannot read from memory.")
 
-        # This decodes the received bytes into a string, and then re-encodes it into a byte array.
-        # Ultimately the simplest way to remove whitespace bytes in between the actual data.
-        response = response.removeprefix(b"READ_CORE_MEMORY ").rstrip().decode()
+        response_str = self._process_response(response)[1]
         # The first "byte" in the remaining string is actually the address, filter it here.
-        index = response.find(" ")
-        b_arr = bytearray.fromhex(response[index+1:])
+        index = response_str.find(" ")
+        b_arr = bytearray.fromhex(response_str[index+1:])
 
         return b_arr
 
