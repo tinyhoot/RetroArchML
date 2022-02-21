@@ -4,7 +4,7 @@ import subprocess
 import threading
 import time
 from subprocess import Popen
-from typing import Union
+from typing import Union, Tuple
 
 
 class RetroArchAPI:
@@ -39,6 +39,25 @@ class RetroArchAPI:
             self._socket.settimeout(3)
 
         logging.info("Finished initialisation.")
+
+    @staticmethod
+    def _prepare_command(command: str) -> bytes:
+        """Strip any special characters from the command and encode it into bytes."""
+        command = command.rstrip().strip(r" \\?!-_./:")
+        command += "\n"
+        return command.encode()
+
+    @staticmethod
+    def _process_response(response: bytes) -> Tuple[str, str]:
+        """Process the received byte response into something usable.
+
+        :return: A tuple containing the issuing command and the actual content of the response.
+        """
+        response = response.decode().rstrip()
+
+        # Filter out the input command
+        index = response.find(" ")
+        return response[:index], response[index+1:]
 
     def _monitor_stdout(self):
         """Monitor RetroArch's stdout and stderr pipelines. Intended to be run as a separate thread.
@@ -100,36 +119,35 @@ class RetroArchAPI:
 
     def _send_network_cmd(self, command: str):
         """Send a command to RetroArch via the network command interface."""
-        command = command.rstrip()
         logging.debug("Send network cmd: " + command)
-        command += "\n"
-        self._socket.sendto(command.encode(), (self._ip, self._port))
+        command = self._prepare_command(command)
+        self._socket.sendto(command, (self._ip, self._port))
 
-    def cmd_frame_advance(self):
+    def frame_advance(self):
         # TODO Seems to be kinda wacky. Needs more research.
-        self._write_stdin("FRAMEADVANCE")
+        self._send_network_cmd("FRAMEADVANCE")
 
-    def cmd_get_status(self) -> Union[str, None]:
+    def get_status(self) -> str:
         """Get information about the currently running content.
 
         :return: The status string returned by RetroArch.
         """
         self._send_network_cmd("GET_STATUS")
         status = self._get_network_response(64)
-        status = status.decode().rstrip()
-        return status
+        cmd, status_str = self._process_response(status)
+        return status_str
 
-    def cmd_get_version(self) -> str:
+    def get_version(self) -> str:
         """Get RetroArch's running version."""
         self._send_network_cmd("VERSION")
         response = self._get_network_response(16)
         return response.decode().rstrip()
 
-    def cmd_pause_toggle(self):
+    def pause_toggle(self):
         """Toggle pausing the currently running content."""
         self._send_network_cmd("PAUSE_TOGGLE")
 
-    def cmd_quit(self, confirm: bool = False):
+    def quit(self, confirm: bool = False):
         """Exit RetroArch.
 
         Because RetroArch by default always asks for confirmation before quitting, it needs to receive two QUIT calls to
@@ -142,15 +160,15 @@ class RetroArchAPI:
             time.sleep(0.1)
             self._send_network_cmd("QUIT")
 
-    def cmd_save_state(self):
+    def save_state(self):
         """Save the game state to the currently selected slot."""
         self._send_network_cmd("SAVE_STATE")
 
-    def cmd_load_state(self):
+    def load_state(self):
         """Load a game state from the currently selected slot."""
         self._send_network_cmd("LOAD_STATE")
 
-    def cmd_read_memory(self, address: str, byte_count: int) -> bytearray:
+    def read_memory(self, address: str, byte_count: int) -> bytearray:
         """Read memory from the currently running content.
 
         Requires a core with memory mapping capabilities, otherwise RetroArch cannot read/write anything and this

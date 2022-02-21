@@ -2,14 +2,14 @@ import os
 import pytest
 import subprocess
 import time
-from typing import AnyStr, IO
+from typing import AnyStr, IO, Tuple
 
 from retroarch_api import RetroArchAPI
 
 
 class TestRetroArchAPI:
 
-    @pytest.fixture()
+    @pytest.fixture
     @pytest.mark.real_process
     def retroarch(self):
         retroarch = "retroarch"
@@ -39,6 +39,11 @@ class TestRetroArchAPI:
     def test__init__is_alive(self, retroarch):
         """Check if the retroarch process started up correctly."""
         assert retroarch.poll() is None
+
+    @pytest.mark.parametrize("response", ["GET_STATUS PLAYING super_snes,bsnes,08fdb21e",
+                                          "READ_CORE_MEMORY 10a 18 ac"])
+    def test_process_response(self, mock_retroarch, response: bytes):
+        assert isinstance(mock_retroarch._process_response(response), Tuple)
 
     @pytest.mark.parametrize("command", ["PAUSE_TOGGLE", "SAVE_STATE\n", "LOAD_STATE\\n"])
     def test_write_stdin(self, mock_retroarch, command: str):
