@@ -27,45 +27,38 @@ class TestRetroArchAPI:
     @pytest.fixture
     def mock_retroarch(self, monkeypatch):
         # Replace the RetroArchAPI constructor with a hollow test case.
-        monkeypatch.setattr(RetroArchAPI, "__init__", mock_process_get)
+        monkeypatch.setattr(RetroArchAPI, "__init__", mock_api_init)
         retro = RetroArchAPI("", "", "")
-        # Keep up appearances by pretending stdin exists.
-        retro._process.stdin = open("tmp.txt", "w", encoding="utf-8")
-        yield retro
-        # Remove fake stdin after the tests are done.
-        os.remove("tmp.txt")
+        return retro
 
     @pytest.mark.real_process
     def test__init__is_alive(self, retroarch):
         """Check if the retroarch process started up correctly."""
         assert retroarch.poll() is None
 
-    @pytest.mark.parametrize("response", ["GET_STATUS PLAYING super_snes,bsnes,08fdb21e",
-                                          "READ_CORE_MEMORY 10a 18 ac"])
-    def test_process_response(self, mock_retroarch, response: bytes):
+    @pytest.mark.parametrize("response, expected",
+                             [(b"GET_STATUS PLAYING super_snes,Super Mario World,crc32=08fdb21e", ("GET_STATUS", "PLAYING super_snes,Super Mario World,crc32=08fdb21e")),
+                              (b"READ_CORE_MEMORY 10a 18 ac\n", ("READ_CORE_MEMORY", "10a 18 ac"))])
+    def test_process_response(self, mock_retroarch, response: bytes, expected):
         assert isinstance(mock_retroarch._process_response(response), Tuple)
+        assert mock_retroarch._process_response(response) == expected
 
-    @pytest.mark.parametrize("command", ["PAUSE_TOGGLE", "SAVE_STATE\n", "LOAD_STATE\\n"])
-    def test_write_stdin(self, mock_retroarch, command: str):
-        """Check if commands are being written to stdin properly."""
-        mock_retroarch._write_stdin(command)
-        mock_retroarch._process.stdin.flush()
-        with open("tmp.txt", "r", encoding="utf-8") as mock_stdin:
-            line = mock_stdin.readline()
-            assert line.rstrip() == command.rstrip()
-            assert line == command.rstrip() + "\n"
+    def test_get_network_response(self, mock_retroarch):
+        assert mock_retroarch._get_network_response(16) == b"big response"
 
-    def test_cmd_quit(self, mock_retroarch):
-        mock_retroarch.cmd_quit()
-        mock_retroarch._process.stdin.flush()
-        with open("tmp.txt", "r", encoding="utf-8") as mock_stdin:
-            assert mock_stdin.readlines() == ["QUIT\n"]
+    def test_send_network_cmd(self, mock_retroarch):
+        assert mock_retroarch._send_network_cmd("PAUSE_TOGGLE")
 
-    def test_cmd_quit_confirm(self, mock_retroarch):
-        mock_retroarch.cmd_quit(True)
-        mock_retroarch._process.stdin.flush()
-        with open("tmp.txt", "r", encoding="utf-8") as mock_stdin:
-            assert mock_stdin.readlines() == ["QUIT\n", "QUIT\n"]
+    def test_send_network_cmd_exception(self, mock_retroarch):
+        assert not mock_retroarch._send_network_cmd("Exception")
+
+    def test_read_memory(self, mock_retroarch):
+        assert isinstance(mock_retroarch.read_memory("1234", 128), bytearray)
+        assert mock_retroarch.read_memory("1234", 128) == bytearray(b'Xi\x0fH\xca;\xfc\r')
+
+    def test_read_memory_no_map(self, mock_retroarch):
+        with pytest.raises(RuntimeError):
+            mock_retroarch.read_memory("00ff", 4096)
 
 
 # Mock replacement for the RetroArch process
@@ -74,5 +67,26 @@ class MockProcess:
     stdin: IO[AnyStr] = None
 
 
-def mock_process_get(self, *args, **kwargs):
+# Mock replacement for the network socket
+class MockSocket:
+
+    response = b""
+
+    def recvfrom(self, bufsize):
+        if not self.response == b"":
+            return self.response, ""
+        return b"big response", b"bad address"
+
+    def sendto(self, command, ip_port_tuple):
+        if b"Exception" in command:
+            raise InterruptedError
+        if b"MEMORY 00ff" in command:
+            self.response = b"READ_CORE_MEMORY 96 -1 no memory map available\n"
+        if b"MEMORY 1234" in command:
+            self.response = b"READ_CORE_MEMORY 1234 58 69 0f 48 ca 3b fc 0d\n"
+        return
+
+
+def mock_api_init(self, *args, **kwargs):
     self._process = MockProcess()
+    self._socket = MockSocket()

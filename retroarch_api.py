@@ -59,11 +59,17 @@ class RetroArchAPI:
         logging.debug(f"Received network response: {response}")
         return response
 
-    def _send_network_cmd(self, command: str):
+    def _send_network_cmd(self, command: str) -> bool:
         """Send a command to RetroArch via the network command interface."""
         logging.debug("Send network cmd: " + command)
         command = self._prepare_command(command)
-        self._socket.sendto(command, (self._ip, self._port))
+        try:
+            self._socket.sendto(command, (self._ip, self._port))
+        except InterruptedError:
+            logging.error(f"Failed to send command to socket! Command was: {command}")
+            return False
+
+        return True
 
     def frame_advance(self):
         # TODO Seems to be kinda wacky. Needs more research.
