@@ -18,12 +18,13 @@ class RetroArchAPI:
         # Init the RetroArch process
         self._process = Popen([retroarch, "-L", core, rom, "--appendconfig", "config.cfg", "--verbose"], bufsize=1,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
         # Init the stdout monitor thread
-        stdout_monitor = threading.Thread(target=self._monitor_stdout, daemon=True)
-        stdout_monitor.start()
         self._stdout_queue = []
         self._stdout_event = threading.Event()
         self._stdout_lock = threading.Lock()
+        stdout_monitor = threading.Thread(target=self._monitor_stdout, daemon=True)
+        stdout_monitor.start()
 
         logging.info("Finished initialisation.")
 
@@ -41,9 +42,9 @@ class RetroArchAPI:
             line = self._process.stdout.readline().rstrip()
             # Ensure the queue object is consistent across threads.
             with self._stdout_lock:
+                self._stdout_queue.append(line)
                 # Notify the main thread that a change has occurred.
                 self._stdout_event.set()
-                self._stdout_queue.append(line)
             logging.debug("STDOUT: " + line)
 
         logging.debug("Process has ended, stopping stdout monitor thread.")
@@ -54,9 +55,12 @@ class RetroArchAPI:
             with self._stdout_lock:
                 self._stdout_queue = self._stdout_queue[-10:]
 
-    def _read_stdout(self) -> str:
+    def _read_stdout(self) -> Union[str, None]:
         """Read the most recent addition to the stdout queue."""
         with self._stdout_lock:
+            # If the queue is empty, just return None instead.
+            if len(self._stdout_queue) == 0:
+                return None
             last_line = self._stdout_queue.pop()
         # Calling this here will probably keep the stdout queue reasonably short.
         self._flush_stdout()
@@ -66,8 +70,7 @@ class RetroArchAPI:
     def _write_stdin(self, command: str):
         """Send a command to RetroArch via stdin."""
         # Ensure the command is properly formatted
-        if not command.endswith("\n"):
-            command += "\n"
+        command = command.rstrip() + "\n"
 
         logging.info("Writing command to stdin: "+command.rstrip())
         self._process.stdin.write(command)
@@ -86,22 +89,25 @@ class RetroArchAPI:
         self._stdout_event.wait(3)
         status = self._read_stdout()
 
-        if len(status) < 20:
+        if "[Content]" not in status:
             # Something went wrong along the way and this is likely not the actual status line.
-            logging.warning("Failed to get status: response is too short!")
+            logging.error("Failed to get status response line!")
             return None
 
-        # The first 18 characters of the line are just logging prefixes, splice those.
-        return status[18:]
+        # A typical return message prefixes the actual checksum with a nice, easy string to split on.
+        status = status.rstrip().split("CRC32: ")[1]
+        status = status.strip(".")
+        return status
 
     def cmd_pause_toggle(self):
+        """Toggle pausing the currently running content."""
         self._write_stdin("PAUSE_TOGGLE")
 
     def cmd_quit(self, confirm: bool = False):
         """Exit RetroArch.
 
-        Because RetroArch always asks for confirmation before quitting, it needs to receive two QUIT calls to actually
-        do it; this is handled by the optional confirm parameter.
+        Because RetroArch by default always asks for confirmation before quitting, it needs to receive two QUIT calls to
+        actually do it; this is handled by the optional confirm parameter.
 
         :param confirm: Skip RetroArch asking for confirmation and quit immediately.
         """
@@ -111,7 +117,31 @@ class RetroArchAPI:
             self._write_stdin("QUIT")
 
     def cmd_save_state(self):
+        """Save the game state to the currently selected slot."""
         self._write_stdin("SAVE_STATE")
 
     def cmd_load_state(self):
+        """Load a game state from the currently selected slot."""
         self._write_stdin("LOAD_STATE")
+
+    def cmd_read_memory(self, address: str, byte_count: int) -> bytearray:
+        """Read memory from the currently running content.
+
+        Requires a core with memory mapping capabilities, otherwise RetroArch cannot read/write anything and this
+        function will have no effect.
+
+        :param address: The address to read from, formatted in hex (e.g. 0xff)
+        :param byte_count: The number of bytes to read.
+        :return: A bytearray containing the bytes read at the specified address.
+        """
+        # TODO currently broken. Not returning memory? Requires network connection instead of stdin.
+        if byte_count <= 0:
+            byte_count = 1
+
+        self._write_stdin(f"READ_CORE_MEMORY {address} {byte_count}")
+        # Wait for the monitoring thread to update with the response
+        if self._stdout_event.wait(timeout=5):
+            response = self._read_stdout()
+            print(response)
+        else:
+            print("WAITED IN VAIN FOR THIS MEMORY RESPONSE")

@@ -16,8 +16,8 @@ def get_cli() -> ArgumentParser:
 
 def main():
     retroarch_path = "retroarch"
-    core_path = "rom/snes9x_libretro.so"
-    rom_path = "rom/smw.sfc"
+    core_path = "rom/bsnes_mercury_balanced_libretro.so"
+    rom_path = "rom/smwUSA.sfc"
 
     logging.basicConfig(level=logging.DEBUG)
     log = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ def main():
     retro.cmd_pause_toggle()
     time.sleep(1)
     print(retro.cmd_get_status())
+    time.sleep(1)
+    retro.cmd_read_memory("96", 1)
 
     time.sleep(3)
     retro.cmd_quit(True)
