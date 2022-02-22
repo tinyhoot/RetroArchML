@@ -17,6 +17,7 @@ def get_cli() -> ArgumentParser:
 def main():
     retroarch_path = "retroarch"
     core_path = "rom/bsnes_mercury_balanced_libretro.so"
+    #core_path = "rom/snes9x_libretro.so"
     rom_path = "rom/smwUSA.sfc"
 
     logging.basicConfig(level=logging.DEBUG)
@@ -26,17 +27,16 @@ def main():
 
     time.sleep(10)
     print("Testing commands")
-    retro.pause_toggle()
+    retro.load_state()
+    print(retro.get_config_param("video_fullscreen"))
+    print(retro.get_config_param("system_directory"))
+    retro.show_msg("Do you have a moment to talk about config parameters?")
     time.sleep(1)
-    print(retro.get_version())
-    retro.get_status()
-    retro.pause_toggle()
+    print(retro.read_memory("ff", 1))
+    print(retro.read_memory("7E0019", 1))
     time.sleep(1)
-    print(retro.get_status())
-    time.sleep(1)
-    print(retro.read_memory("004e", 1))
-    print(retro.read_memory("010A", 2))
-    print(retro.read_memory("0068", 8))
+    print(retro.write_memory("7E0019", "03"))
+    print(retro.read_memory("7E0019", 1))
 
     time.sleep(3)
     retro.quit(True)
