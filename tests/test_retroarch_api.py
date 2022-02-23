@@ -57,7 +57,7 @@ class TestRetroArchAPI:
         assert mock_retroarch.get_config_param("GET_CONFIG_PARAM savestate_dir") == "/test/bin/retroarch/savestates"
 
     def test_get_config_param_unsupported(self, mock_retroarch):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             mock_retroarch.get_config_param("GET_CONFIG_PARAM bad_parameter")
 
     def test_read_memory(self, mock_retroarch):
@@ -65,14 +65,14 @@ class TestRetroArchAPI:
         assert mock_retroarch.read_memory("1234", 128) == bytearray(b'Xi\x0fH\xca;\xfc\r')
 
     def test_read_memory_no_map(self, mock_retroarch):
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             mock_retroarch.read_memory("00ff", 4096)
 
     def test_write_memory(self, mock_retroarch):
         assert mock_retroarch.write_memory("7E0019", "03") == "7E0019 1"
 
     def test_write_memory_no_map(self, mock_retroarch):
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             mock_retroarch.write_memory("facf", "ff 26")
 
 

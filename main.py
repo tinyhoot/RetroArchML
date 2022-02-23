@@ -14,6 +14,21 @@ def get_cli() -> ArgumentParser:
     return parser
 
 
+def test(retro):
+    #time.sleep(10)
+    print("Testing commands")
+    #retro.load_state()
+    retro.pause_toggle()
+    time.sleep(1)
+    retro.frame_advance()
+    time.sleep(1)
+    retro.frame_advance()
+    # time.sleep(3)
+
+    time.sleep(3)
+    retro.quit(True)
+
+
 def main():
     retroarch_path = "retroarch"
     core_path = "rom/bsnes_mercury_balanced_libretro.so"
@@ -24,22 +39,8 @@ def main():
     log = logging.getLogger(__name__)
 
     retro = retroarch_api.RetroArchAPI(retroarch_path, core_path, rom_path)
-
     time.sleep(10)
-    print("Testing commands")
-    retro.load_state()
-    print(retro.get_config_param("video_fullscreen"))
-    print(retro.get_config_param("system_directory"))
-    retro.show_msg("Do you have a moment to talk about config parameters?")
-    time.sleep(1)
-    print(retro.read_memory("ff", 1))
-    print(retro.read_memory("7E0019", 1))
-    time.sleep(1)
-    print(retro.write_memory("7E0019", "03"))
-    print(retro.read_memory("7E0019", 1))
-
-    time.sleep(3)
-    retro.quit(True)
+    test(retro)
 
 
 if __name__ == "__main__":

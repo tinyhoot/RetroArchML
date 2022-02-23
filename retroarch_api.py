@@ -78,10 +78,32 @@ class RetroArchAPI:
 
         return True
 
+    def close_content(self):
+        """Stop playing the currently running content."""
+        self._send_network_cmd("CLOSE_CONTENT")
+
+    def fast_forward_hold(self):
+        """Fast-forward the emulation for one frame.
+
+        To use this effectively, this command should be sent every frame, thus simulating holding down a button.
+        """
+        self._send_network_cmd("FAST_FORWARD_HOLD")
+
+    def fast_forward_toggle(self):
+        """Toggle fast-forwarding the emulation."""
+        self._send_network_cmd("FAST_FORWARD")
+
     def frame_advance(self):
-        # TODO Seems to be kinda wacky. Needs more research.
-        raise NotImplementedError
-        # self._send_network_cmd("FRAMEADVANCE")
+        """Advance the game state by one frame.
+
+        If a game is currently running and unpaused, the first use of this method is equivalent to using the
+        pause_toggle() command. Once the game is paused, this method will act as expected.
+        """
+        self._send_network_cmd("FRAMEADVANCE")
+
+    def fullscreen_toggle(self):
+        """Switches between fullscreen and windowed mode."""
+        self._send_network_cmd("FULLSCREEN_TOGGLE")
 
     def get_config_param(self, param: str) -> str:
         """Get a value from RetroArch's config.
@@ -90,8 +112,9 @@ class RetroArchAPI:
         parameters for query, mostly related to directory paths. All supported params can be found in the
         SUPPORTED_CONFIG_PARAMS constant. Will raise an exception if an unsupported param is passed.
 
-        :param param: The parameter to retrieve.
+        :param param: The config parameter to retrieve.
         :return: The parameter's value.
+        :raise ValueError: If an unsupported config parameter is passed.
         """
         self._send_network_cmd("GET_CONFIG_PARAM " + param)
         response = self._get_network_response(8192)
@@ -99,7 +122,7 @@ class RetroArchAPI:
         response_str = self._process_response(response)[1]
         value = response_str.split()[1]
         if "unsupported" in value:
-            raise Exception("Unsupported config parameter: " + param)
+            raise ValueError("Unsupported config parameter: " + param)
 
         return value
 
@@ -128,6 +151,13 @@ class RetroArchAPI:
         response = self._get_network_response(256)
         return self._process_response(response)[1]
 
+    def input_record_toggle(self):
+        """Toggle input recording.
+
+        This will create a .bsv file in a location determined by the RetroArch config.
+        """
+        self._send_network_cmd("BSV_RECORD_TOGGLE")
+
     def load_state(self):
         """Load a game state from the currently selected slot."""
         self._send_network_cmd("LOAD_STATE")
@@ -149,9 +179,40 @@ class RetroArchAPI:
             time.sleep(0.1)
             self._send_network_cmd("QUIT")
 
+    def reset(self):
+        """Reset the currently running content."""
+        self._send_network_cmd("RESET")
+
+    def rewind(self):
+        """Rewind the game state to a previous position.
+
+        For this command to work, rewinding must be supported and enabled in the config. Once called, it will act as
+        exactly one rewind step as configured; by default, this means just one frame.\n
+        It is possible to send this command every frame and thus simulate holding down the rewind hotkey.
+        """
+        self._send_network_cmd("REWIND")
+
     def save_state(self):
         """Save the game state to the currently selected slot."""
         self._send_network_cmd("SAVE_STATE")
+
+    def savestate_slot_decrease(self):
+        """Decrease the number of the currently selected save state slot.
+
+        Note: Will not work if sent in quick succession. If you want to cycle through a lot of state slots at once,
+        introduce a small delay between each increase/decrease (at least one frame).\n
+        Trying to decrease past state slot 0 will not wrap around, and have no effect.
+        """
+        self._send_network_cmd("STATE_SLOT_MINUS")
+
+    def savestate_slot_increase(self):
+        """Increase the number of the currently selected save state slot.
+
+        Note: Will not work if sent in quick succession. If you want to cycle through a lot of state slots at once,
+        introduce a small delay between each increase/decrease (at least one frame).\n
+        Trying to increase past state slot 999 will not wrap around, and have no effect.
+        """
+        self._send_network_cmd("STATE_SLOT_PLUS")
 
     def show_msg(self, message: str):
         """Show a message in-game.
@@ -159,6 +220,17 @@ class RetroArchAPI:
         :param message: The message to display.
         """
         self._send_network_cmd("SHOW_MSG " + message)
+
+    def slow_motion_hold(self):
+        """Slow down the emulation for one frame.
+
+        To use this effectively, this command should be sent every frame, thus simulating holding down a button.
+        """
+        self._send_network_cmd("SLOWMOTION_HOLD")
+
+    def slow_motion_toggle(self):
+        """Toggle slowing down the emulation."""
+        self._send_network_cmd("SLOWMOTION")
 
     def read_memory(self, address: str, byte_count: int) -> bytearray:
         """Read memory from the currently running content.
@@ -170,6 +242,7 @@ class RetroArchAPI:
         :param address: The address to read from, formatted in hex (e.g. 00ff)
         :param byte_count: The number of bytes to read.
         :return: A bytearray containing the bytes read at the specified address.
+        :raise RuntimeError: If the current running core does not provide a memory map.
         """
         # Ensure any 0x prefixes are stripped and not sent along with the command.
         if address.startswith("0x"):
@@ -177,13 +250,13 @@ class RetroArchAPI:
         self._send_network_cmd(f"READ_CORE_MEMORY {address} {byte_count}")
 
         response = self._get_network_response(4096)
+        response_str = self._process_response(response)[1]
 
-        if b"no memory map" in response:
+        if "no memory map" in response_str:
             error_msg = "Failed to read from memory: running core does not provide a memory map!"
             self._log.error(error_msg)
-            raise Exception(error_msg)
+            raise RuntimeError(error_msg)
 
-        response_str = self._process_response(response)[1]
         # The first "byte" in the remaining string is actually the address, filter it here.
         index = response_str.find(" ")
         b_arr = bytearray.fromhex(response_str[index+1:])
@@ -199,16 +272,17 @@ class RetroArchAPI:
         :param address: The memory address to write to.
         :param new_bytes: The data to write, formatted as a hexstring with spaces between the individual bytes.
         :return: RetroArch's response to the command, indicating the address and how many bytes have been written.
+        :raise RuntimeError: If the current running core does not provide a memory map.
         """
         self._send_network_cmd(f"WRITE_CORE_MEMORY {address} {new_bytes}")
 
         response = self._get_network_response(4096)
-        response_str = self._process_response(response)
+        response_str = self._process_response(response)[1]
 
-        if "no memory map" in response_str[1]:
+        if "no memory map" in response_str:
             error_msg = "Failed to write to memory address: running core does not provide a memory map!"
             self._log.error(error_msg)
-            raise Exception(error_msg)
+            raise RuntimeError(error_msg)
 
-        return response_str[1]
+        return response_str
 
