@@ -45,7 +45,7 @@ class RetroArchAPI:
     def _process_response(response: bytes) -> Tuple[str, str]:
         """Process the received byte response into something usable.
 
-        :return: A tuple containing the issuing command and the actual content of the response.
+        :return: A tuple containing the issuing command and the content of the response.
         """
         response = response.decode().rstrip()
 
@@ -59,7 +59,8 @@ class RetroArchAPI:
         This will time out and throw an exception after no response is captured for 3 seconds (default).
 
         :param bufsize: The maximum number of bytes to read.
-        :return: Bytes received from RetroArch."""
+        :return: Bytes received from RetroArch.
+        """
         response, address = self._socket.recvfrom(bufsize)
         self._log.debug(f"Received network response: {response}")
         return response
@@ -67,13 +68,14 @@ class RetroArchAPI:
     def _send_network_cmd(self, command: str) -> bool:
         """Send a command to RetroArch via the network command interface.
 
-        :return: True if the command was sent successfully, False otherwise"""
+        :return: True if the command was sent successfully, False otherwise.
+        """
         self._log.debug("Send network cmd: " + command)
         command = self._prepare_command(command)
         try:
             self._socket.sendto(command, (self._ip, self._port))
         except InterruptedError:
-            self._log.error(f"Failed to send command to socket! Command was: {command}")
+            self._log.error(f"Failed to send command to socket at {self._ip}:{self._port}! Command was: {command}")
             return False
 
         return True
