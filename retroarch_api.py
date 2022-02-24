@@ -37,7 +37,7 @@ class RetroArchAPI:
     @staticmethod
     def _prepare_command(command: str) -> bytes:
         """Strip any special characters from the command and encode it into bytes."""
-        command = command.rstrip().strip(r" \\?!-_./:")
+        command = command.rstrip().strip(r" ?!-_./:")
         command += "\n"
         return command.encode()
 
@@ -80,6 +80,18 @@ class RetroArchAPI:
 
         return True
 
+    def cheat_index_next(self):
+        """Select the next cheat from the currently loaded cheat file."""
+        self._send_network_cmd("CHEAT_INDEX_PLUS")
+
+    def cheat_index_previous(self):
+        """Select the previous cheat from the currently loaded cheat file."""
+        self._send_network_cmd("CHEAT_INDEX_MINUS")
+
+    def cheat_toggle(self):
+        """Toggle the currently selected cheat on or off."""
+        self._send_network_cmd("CHEAT_TOGGLE")
+
     def close_content(self):
         """Stop playing the currently running content."""
         self._send_network_cmd("CLOSE_CONTENT")
@@ -94,6 +106,10 @@ class RetroArchAPI:
     def fast_forward_toggle(self):
         """Toggle fast-forwarding the emulation."""
         self._send_network_cmd("FAST_FORWARD")
+
+    def fps_toggle(self):
+        """Toggle the fps display."""
+        self._send_network_cmd("FPS_TOGGLE")
 
     def frame_advance(self):
         """Advance the game state by one frame.
@@ -164,6 +180,40 @@ class RetroArchAPI:
         """Load a game state from the currently selected slot."""
         self._send_network_cmd("LOAD_STATE")
 
+    def menu_back(self):
+        """While in the menu, cancel the current selection or back out of the current sub-menu."""
+        self._send_network_cmd("MENU_B")
+
+    def menu_confirm(self):
+        """While in the menu, confirm the current selection."""
+        self._send_network_cmd("MENU_A")
+
+    def menu_down(self):
+        """While in the menu, move the cursor down."""
+        self._send_network_cmd("MENU_DOWN")
+
+    def menu_left(self):
+        """While in the menu, move the cursor left."""
+        self._send_network_cmd("MENU_LEFT")
+
+    def menu_right(self):
+        """While in the menu, move the cursor right."""
+        self._send_network_cmd("MENU_RIGHT")
+
+    def menu_toggle(self):
+        """Toggle the in-game menu."""
+        self._send_network_cmd("MENU_TOGGLE")
+
+    def menu_up(self):
+        """While in the menu, move the cursor up."""
+        self._send_network_cmd("MENU_UP")
+
+    def onscreen_keyboard_toggle(self):
+        """Show/hide the on-screen keyboard."""
+        raise NotImplementedError
+        # TODO Does not seem to do anything. Needs more research.
+        # self._send_network_cmd("OSK")
+
     def pause_toggle(self):
         """Toggle pausing the currently running content."""
         self._send_network_cmd("PAUSE_TOGGLE")
@@ -198,7 +248,16 @@ class RetroArchAPI:
         """Save the game state to the currently selected slot."""
         self._send_network_cmd("SAVE_STATE")
 
-    def savestate_slot_decrease(self):
+    def savestate_slot_next(self):
+        """Increase the number of the currently selected save state slot.
+
+        Note: Will not work if sent in quick succession. If you want to cycle through a lot of state slots at once,
+        introduce a small delay between each increase/decrease (at least one frame).\n
+        Trying to increase past state slot 999 will not wrap around, and have no effect.
+        """
+        self._send_network_cmd("STATE_SLOT_PLUS")
+
+    def savestate_slot_previous(self):
         """Decrease the number of the currently selected save state slot.
 
         Note: Will not work if sent in quick succession. If you want to cycle through a lot of state slots at once,
@@ -207,14 +266,16 @@ class RetroArchAPI:
         """
         self._send_network_cmd("STATE_SLOT_MINUS")
 
-    def savestate_slot_increase(self):
-        """Increase the number of the currently selected save state slot.
+    def screenshot(self):
+        """Take a screenshot and save it in a directory as configured in RetroArch."""
+        self._send_network_cmd("SCREENSHOT")
 
-        Note: Will not work if sent in quick succession. If you want to cycle through a lot of state slots at once,
-        introduce a small delay between each increase/decrease (at least one frame).\n
-        Trying to increase past state slot 999 will not wrap around, and have no effect.
+    def set_shader(self, shader_path: str):
+        """Enable a specific shader.
+
+        :param shader_path: The file path to the shader to load.
         """
-        self._send_network_cmd("STATE_SLOT_PLUS")
+        self._send_network_cmd("SET_SHADER " + shader_path)
 
     def show_msg(self, message: str):
         """Show a message in-game.
@@ -233,6 +294,18 @@ class RetroArchAPI:
     def slow_motion_toggle(self):
         """Toggle slowing down the emulation."""
         self._send_network_cmd("SLOWMOTION")
+
+    def volume_down(self):
+        """Lower the volume."""
+        self._send_network_cmd("VOLUME_DOWN")
+
+    def volume_mute(self):
+        """Toggle muting RetroArch."""
+        self._send_network_cmd("MUTE")
+
+    def volume_up(self):
+        """Increase the volume."""
+        self._send_network_cmd("VOLUME_UP")
 
     def read_memory(self, address: str, byte_count: int) -> bytearray:
         """Read memory from the currently running content.

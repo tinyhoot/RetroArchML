@@ -18,12 +18,7 @@ def test(retro):
     #time.sleep(10)
     print("Testing commands")
     #retro.load_state()
-    retro.pause_toggle()
-    time.sleep(1)
-    retro.frame_advance()
-    time.sleep(1)
-    retro.frame_advance()
-    # time.sleep(3)
+
 
     time.sleep(3)
     retro.quit(True)
