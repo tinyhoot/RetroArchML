@@ -147,4 +147,7 @@ class TestGenetics:
 
     def test_get_compatibility_distance(self, parent_genomes):
         # 2 excess, 3 disjoint, 1.2 weight, n_genes = 9
-        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1]) == 1.0355555555555556
+        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1], True) == 1.0355555555555556
+
+    def test_get_compatibility_distance_no_normalise(self, parent_genomes):
+        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1], False) == 5.4799999999999995

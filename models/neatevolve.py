@@ -14,6 +14,8 @@ RANDOM = Random()
 EXCESS_GENES_COEFFICIENT = 1.0
 DISJOINT_GENES_COEFFICIENT = 1.0
 WEIGHT_DIFFERENCE_COEFFICIENT = 0.4
+NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
+
 DISABLED_GENE_REENABLE_CHANCE = 0.25
 
 
@@ -206,13 +208,15 @@ class Generation:
         return None
 
 
-def get_compatibility_distance(first_genome: Genome, second_genome: Genome) -> float:
+def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
+                               normalise_gene_size: bool = NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE) -> float:
     """Calculate the compatibility distance between two genomes (network structures).
 
     The distance increases with excess and disjoint genes, as well as weight differences between matching genes.
 
     :param first_genome: The first genome.
     :param second_genome: The second genome.
+    :param normalise_gene_size: If False, n_genes is set to 1 for genomes consisting of < 20 genes.
     :return: A floating point value representing the compatibility distance.
     """
     # N is the number of genes of the larger genome.
@@ -220,6 +224,9 @@ def get_compatibility_distance(first_genome: Genome, second_genome: Genome) -> f
         n_genes = first_genome.get_size()
     else:
         n_genes = second_genome.get_size()
+
+    if not normalise_gene_size and n_genes < 20:
+        n_genes = 1
 
     # Count the total number of excess and disjoint genes. Prevent duplicates by keeping track of innovation numbers.
     # This feels like a dumb way to do it. Can definitely be optimised.
