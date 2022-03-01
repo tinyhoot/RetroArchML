@@ -71,7 +71,6 @@ class Genome:
                     return connection
             # No such connection exists.
             # _log.warning(f"No such connection with innovation {innovation}")
-            # raise ValueError(f"There is no connection gene with the innovation number {innovation}!")
             return None
 
         if input_node is not None and output_node is not None:
@@ -79,12 +78,11 @@ class Genome:
                 if connection.input_node == input_node and connection.output_node == output_node:
                     return connection
             # _log.warning(f"No such connection with in:{input_node}, out:{output_node}")
-            # raise ValueError(f"There is no connection gene with input node {input_node} and output node {output_node}!")
             return None
 
         # No parameters were given, or the parameters were somehow faulty.
         LOG.warning(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
-                     f" output: {output_node}")
+                    f" output: {output_node}")
         raise ValueError(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
                          f" output: {output_node}")
 
@@ -220,23 +218,13 @@ def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
     :return: A floating point value representing the compatibility distance.
     """
     # N is the number of genes of the larger genome.
-    if first_genome.get_size() > second_genome.get_size():
-        n_genes = first_genome.get_size()
-    else:
-        n_genes = second_genome.get_size()
+    n_genes = max(first_genome.get_size(), second_genome.get_size())
 
     if not normalise_gene_size and n_genes < 20:
         n_genes = 1
 
-    # Count the total number of excess and disjoint genes. Prevent duplicates by keeping track of innovation numbers.
-    # This feels like a dumb way to do it. Can definitely be optimised.
-    processed_genes = []
-    excess, disjoint, weight = _get_gene_differences(first_genome, second_genome, processed_genes)
-    excess2, disjoint2, weight2 = _get_gene_differences(second_genome, first_genome, processed_genes)
-
-    excess += excess2
-    disjoint += disjoint2
-    weight += weight2
+    # Count the total number of excess and disjoint genes.
+    excess, disjoint, weight = get_gene_differences(first_genome, second_genome)
 
     excess_distance = (EXCESS_GENES_COEFFICIENT * excess) / n_genes
     disjoint_distance = (DISJOINT_GENES_COEFFICIENT * disjoint) / n_genes
@@ -245,31 +233,37 @@ def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
     return excess_distance + disjoint_distance + weight_distance
 
 
-def _get_gene_differences(first_genome: Genome, second_genome: Genome, processed_genes: List) -> Tuple[int, int, float]:
+def get_gene_differences(first_genome: Genome, second_genome: Genome) -> Tuple[int, int, float]:
     """Get the number of excess and disjoint genes along with total weight difference for two genomes.
 
-    Intended to be called twice, once for each genome in initial position. Directly edits the given list.
+    :return: A tuple containing the number of excess genes, number of disjoint genes, and total weight difference.
     """
     excess, disjoint, weight = 0, 0, 0.0
-    second_genome_last_innovation = second_genome.connections[-1].innovation
 
-    for first_gene in first_genome.connections:
-        if first_gene.innovation in processed_genes:
-            continue  # Duplicate, skip.
+    # Innovation numbers are unique, sets make them easy to compare.
+    first_genome_innovations = set([x.innovation for x in first_genome.connections])
+    second_genome_innovations = set([x.innovation for x in second_genome.connections])
 
-        processed_genes.append(first_gene.innovation)
-        second_gene = second_genome.get_connection(innovation=first_gene.innovation)
-
-        if second_gene is None:
-            if first_gene.innovation > second_genome_last_innovation:
-                # Gene is excess
-                excess += 1
-            else:
-                # Gene is disjoint
-                disjoint += 1
-        else:
-            # Genes are matching, calculate weight difference
+    # Iterate through all innovations that appear in either of the genomes.
+    for innovation in first_genome_innovations | second_genome_innovations:
+        # Does this gene exist in just one set, or both?
+        if innovation in first_genome_innovations & second_genome_innovations:
+            # The genes are matching. Calculate weight difference.
+            first_gene = first_genome.get_connection(innovation=innovation)
+            second_gene = second_genome.get_connection(innovation=innovation)
             weight += math.fabs(first_gene.weight - second_gene.weight)
+        else:
+            # The gene is either excess or disjoint. Find out which one it is.
+            if innovation in first_genome_innovations:
+                if innovation > max(second_genome_innovations):
+                    excess += 1
+                else:
+                    disjoint += 1
+            if innovation in second_genome_innovations:
+                if innovation > max(first_genome_innovations):
+                    excess += 1
+                else:
+                    disjoint += 1
 
     return excess, disjoint, weight
 
