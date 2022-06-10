@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import logging
 import retroarch_api
@@ -19,6 +20,13 @@ def test(retro):
     print("Testing commands")
     #retro.load_state()
 
+    retro.show_msg("Do you have a moment to talk about config parameters?")
+    time.sleep(1)
+    print(retro.read_memory("ff", 1))
+    print(retro.read_memory("7E0019", 1))
+    time.sleep(1)
+    print(retro.write_memory("7E0019", "03"))
+    print(retro.read_memory("7E0019", 1))
 
     time.sleep(3)
     retro.quit(True)

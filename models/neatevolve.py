@@ -16,7 +16,9 @@ DISJOINT_GENES_COEFFICIENT = 1.0
 WEIGHT_DIFFERENCE_COEFFICIENT = 0.4
 NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
 
+COMPATIBILITY_THRESHOLD = 3.0           # The maximum distance between members of a species.
 DISABLED_GENE_REENABLE_CHANCE = 0.25
+TOTAL_POPULATION_SIZE = 150
 
 
 class Connection:
@@ -204,6 +206,43 @@ class Generation:
                 return connection.innovation
 
         return None
+
+
+class Species:
+    """A collection of genomes with low compatibility distance and a representative genome to measure against."""
+
+    def __init__(self, representative: Genome):
+        self.population = [representative]
+        self.representative = representative
+
+    def get_adjusted_fitness(self, genome: Genome) -> float:
+        """Get the fitness of a genome, adjusted for the general fitness of the rest of the population.
+
+        This is a form of explicit fitness sharing; each organism must share its fitness with the rest of its
+        ecological niche.
+
+        :return: This genome's fitness adjusted for the population.
+        :raise ValueError: If the given genome is not part of the species.
+        """
+        if genome not in self.population:
+            raise ValueError("Given genome is not part of this species' population!")
+
+        # The actual function for adjusted fitness is a fair bit more complex than this, but in a speciated population
+        # the denominator reduces to the population size.
+        return genome.fitness / len(self.population)
+
+    def get_population_fitness(self) -> float:
+        """Get the overall fitness of the population.
+
+        This is equal to the sum of adjusted fitnesses of all member organisms.
+
+        :return: The population fitness.
+        """
+        fitness = 0.0
+        for organism in self.population:
+            fitness += self.get_adjusted_fitness(organism)
+
+        return fitness
 
 
 def get_compatibility_distance(first_genome: Genome, second_genome: Genome,

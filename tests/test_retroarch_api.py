@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import logging
-import os
 import pytest
 import subprocess
 import time
-from typing import AnyStr, IO, Tuple
+from typing import AnyStr, IO
 
 from retroarch_api import RetroArchAPI
 
@@ -14,8 +16,8 @@ class TestRetroArchAPI:
     @pytest.mark.real_process
     def retroarch(self):
         retroarch = "retroarch"
-        core = "../rom/snes9x_libretro.so"
-        rom = "../rom/smw.sfc"
+        core = "rom/snes9x_libretro.so"
+        rom = "rom/smw.sfc"
 
         process = subprocess.Popen([retroarch, "-L", core, rom, "--appendconfig", "config.cfg", "--verbose"], bufsize=1,
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -41,7 +43,7 @@ class TestRetroArchAPI:
                              [(b"GET_STATUS PLAYING super_snes,Super Mario World,crc32=08fdb21e", ("GET_STATUS", "PLAYING super_snes,Super Mario World,crc32=08fdb21e")),
                               (b"READ_CORE_MEMORY 10a 18 ac\n", ("READ_CORE_MEMORY", "10a 18 ac"))])
     def test_process_response(self, mock_retroarch, response: bytes, expected):
-        assert isinstance(mock_retroarch._process_response(response), Tuple)
+        assert isinstance(mock_retroarch._process_response(response), tuple)
         assert mock_retroarch._process_response(response) == expected
 
     def test_get_network_response(self, mock_retroarch):
