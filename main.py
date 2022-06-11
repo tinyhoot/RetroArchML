@@ -5,6 +5,7 @@ import logging
 import retroarch_api
 import time
 from argparse import ArgumentParser
+from games.smw import SuperMarioWorldWrapper
 
 
 def get_cli() -> ArgumentParser:
@@ -16,17 +17,15 @@ def get_cli() -> ArgumentParser:
 
 
 def test(retro):
-    #time.sleep(10)
+    time.sleep(3)
     print("Testing commands")
-    #retro.load_state()
+    retro.load_state()
 
-    retro.show_msg("Do you have a moment to talk about config parameters?")
-    time.sleep(1)
-    print(retro.read_memory("ff", 1))
-    print(retro.read_memory("7E0019", 1))
-    time.sleep(1)
-    print(retro.write_memory("7E0019", "03"))
-    print(retro.read_memory("7E0019", 1))
+    wrapper = SuperMarioWorldWrapper(retro)
+    for i in range(5):
+        time.sleep(5)
+        print(wrapper.get_player_pos())
+        wrapper.get_tiles()
 
     time.sleep(3)
     retro.quit(True)
@@ -35,7 +34,6 @@ def test(retro):
 def main():
     retroarch_path = "retroarch"
     core_path = "rom/bsnes_mercury_balanced_libretro.so"
-    #core_path = "rom/snes9x_libretro.so"
     rom_path = "rom/smwUSA.sfc"
 
     logging.basicConfig(level=logging.DEBUG)
