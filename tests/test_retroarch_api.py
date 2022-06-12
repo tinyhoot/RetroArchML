@@ -125,3 +125,5 @@ def mock_api_init(self, *args, **kwargs):
     self._log = logging.getLogger()
     self._process = MockProcess()
     self._socket = MockSocket()
+    self._ip = "localhost"
+    self._port = 55355

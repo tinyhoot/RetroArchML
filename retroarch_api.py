@@ -14,11 +14,7 @@ class RetroArchAPI:
     SUPPORTED_CONFIG_PARAMS = ("video_fullscreen", "savefile_directory", "savestate_directory", "runtime_log_directory",
                                "log_dir", "cache_directory", "system_directory", "netplay_nickname")
 
-    _socket = None
-    _ip = "localhost"
-    _port = 55355
-
-    def __init__(self, retroarch: str, core: str, rom: str):
+    def __init__(self, retroarch: str, core: str, rom: str, ip: str = "localhost", port: int = 55355):
         """Run a RetroArch process and prepare it for network communication.
 
         :param retroarch: The path to a retroarch executable.
@@ -26,6 +22,9 @@ class RetroArchAPI:
         :param rom: The path to the rom of the game to be run.
         """
         self._log = logging.getLogger(__name__)
+        self._socket = None
+        self._ip = ip
+        self._port = port
 
         # Init the RetroArch process
         self._process = Popen([retroarch, "-L", core, rom, "--appendconfig", "config.cfg", "--verbose"], bufsize=1,
