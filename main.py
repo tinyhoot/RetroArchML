@@ -21,14 +21,32 @@ def test(retro):
     print("Testing commands")
     retro.load_state()
 
+    time.sleep(1)
+    retro.register_on_frame(on_test)
+    retro.start_frame_advance()
+
+    return
+
     wrapper = SuperMarioWorldWrapper(retro)
     for i in range(5):
         time.sleep(5)
         print(wrapper.get_player_pos())
-        wrapper.get_tiles()
+        wrapper.get_screen()
 
     time.sleep(3)
     retro.quit(True)
+
+
+FRAMES = 0
+def on_test(retro: retroarch_api.RetroArchAPI):
+    global FRAMES
+    FRAMES += 1
+    print(FRAMES)
+    if FRAMES == 5 or FRAMES == 10:
+        retro.press_buttons("Right")
+    if FRAMES == 300:
+        retro.release_buttons("Right")
+    return True
 
 
 def main():
@@ -40,7 +58,7 @@ def main():
     log = logging.getLogger(__name__)
 
     retro = retroarch_api.RetroArchAPI(retroarch_path, core_path, rom_path)
-    time.sleep(10)
+    time.sleep(5)
     test(retro)
 
 

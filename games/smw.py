@@ -20,7 +20,7 @@ class SuperMarioWorldWrapper:
 
         return x, y
 
-    def get_tiles(self) -> list[bytearray]:
+    def get_screen(self) -> list[bytearray]:
         """Get the 16x16 tiles currently on screen."""
         # Here's how it works: The game loads the entire level into memory at two addresses, 0x7EC800 and 0x7FC800. The
         # space allocated to them is massive, clocking in at 14336 bytes each.

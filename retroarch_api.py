@@ -6,7 +6,7 @@ import socket
 import subprocess
 import time
 from subprocess import Popen
-from typing import Union, Tuple
+from typing import Union, Tuple, Callable
 
 
 class RetroArchAPI:
@@ -25,16 +25,32 @@ class RetroArchAPI:
         self._socket = None
         self._ip = ip
         self._port = port
+        self._held_buttons = []
+        self._on_frame_funcs = []
 
         # Init the RetroArch process
         self._process = Popen([retroarch, "-L", core, rom, "--appendconfig", "config.cfg", "--verbose"], bufsize=1,
                               stdin=subprocess.PIPE, stdout=None, stderr=None, text=True)
+        self._window_id = -1
 
         # Init the network socket
         self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
         self._socket.settimeout(3)
 
         self._log.info("Finished initialisation.")
+
+    @staticmethod
+    def _get_window_id() -> int:
+        """Get the emulator's X window id.
+
+        :return: The id of the most recent active window, -1 otherwise.
+        """
+        xdt = subprocess.run(["xdotool", "search", "--name", "^RetroArch "], stdout=subprocess.PIPE, text=True)
+        # If multiple windows called RetroArch are found, assume that the newest one is the correct one.
+        stdout = xdt.stdout.rstrip("\n").split("\n")[-1]
+        if not stdout:
+            return -1
+        return int(stdout)
 
     @staticmethod
     def _prepare_command(command: str) -> bytes:
@@ -220,7 +236,7 @@ class RetroArchAPI:
         """Toggle pausing the currently running content."""
         self._send_network_cmd("PAUSE_TOGGLE")
 
-    def quit(self, confirm: bool = False):
+    def quit(self, confirm: bool = True):
         """Exit RetroArch.
 
         Because RetroArch by default always asks for confirmation before quitting, it needs to receive two QUIT calls to
@@ -232,6 +248,17 @@ class RetroArchAPI:
         if confirm:
             time.sleep(0.1)
             self._send_network_cmd("QUIT")
+
+    def register_on_frame(self, func: Callable[["RetroArchAPI"], bool]):
+        """Register a function to be called on every frame.
+
+        The function will be passed the API as argument and should return True if the frame loop should continue,
+        or False if it should stop.
+
+        After registering, ensure that RetroArch is ready (i.e. content / state is loaded, initial positions reached),
+        then call start_frame_advance().
+        """
+        self._on_frame_funcs.append(func)
 
     def reset(self):
         """Reset the currently running content."""
@@ -297,6 +324,35 @@ class RetroArchAPI:
         """Toggle slowing down the emulation."""
         self._send_network_cmd("SLOWMOTION")
 
+    def start_frame_advance(self, delay: float = 0.02):
+        """Continuously advance the game state by one frame, and call any registered functions on each frame.
+
+        The game state will not advance until all registered functions have completed execution. Functions can be
+        registered through register_on_frame(func). Frame advancing will continue indefinitely or until a called
+        function returns False.
+
+        :param delay: How long to wait between each frame call. If this is set too low, RetroArch will be overwhelmed
+        and unable to parse much of anything sent to it.
+        :raise ValueError: If no functions have been registered.
+        """
+        if not self._on_frame_funcs:
+            raise ValueError("No functions to be called on frame have been registered!")
+
+        status = self.get_status()
+        if status[0] != "PAUSED":
+            self.pause_toggle()
+            time.sleep(0.05)
+
+        while True:
+            self.frame_advance()
+            # Running as fast as possible does not work, there needs to be a small delay for RetroArch to handle things.
+            time.sleep(delay)
+            # Call each of the previously registered functions.
+            for func in self._on_frame_funcs:
+                # If a function does not return True, stop the frame loop.
+                if not func(self):
+                    return
+
     def volume_down(self):
         """Lower the volume."""
         self._send_network_cmd("VOLUME_DOWN")
@@ -340,7 +396,7 @@ class RetroArchAPI:
 
         return b_arr
 
-    def write_memory(self, address: str, new_bytes: str):
+    def write_memory(self, address: str, new_bytes: str) -> str:
         """Write bytes to a memory address in RAM.
 
         Caution is advised when using this method, as it can easily crash the game if the wrong address is poked.\n
@@ -363,3 +419,30 @@ class RetroArchAPI:
 
         return response_str
 
+    def hold_buttons(self, buttons: str):
+        """Hold down a button combination.
+
+        Example parameters: 'ctrl+r', 'a+space'
+
+        :param buttons: The button combination to hold. Separate individual buttons with + signs.
+        """
+        self._log.debug(f"Holding buttons {buttons}")
+        if self._window_id == -1:
+            self._window_id = self._get_window_id()
+        self._held_buttons += buttons.split("+")
+        xdt = subprocess.run(["xdotool", "keydown", "--window", str(self._window_id), buttons], stdout=subprocess.PIPE)
+
+    def release_buttons(self, buttons: str):
+        """Release a held button combination.
+
+        Example parameters: 'ctrl+r', 'a+space'
+
+        :param buttons: The button combination to release. Separate individual buttons with + signs.
+        """
+        self._log.debug(f"Releasing buttons {buttons}")
+        if self._window_id == -1:
+            self._window_id = self._get_window_id()
+        for button in buttons.split("+"):
+            if button in self._held_buttons:
+                self._held_buttons.remove(button)
+        xdt = subprocess.run(["xdotool", "keyup", "--window", str(self._window_id), buttons], stdout=subprocess.PIPE)
