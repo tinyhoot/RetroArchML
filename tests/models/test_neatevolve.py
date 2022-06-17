@@ -116,7 +116,7 @@ class TestGenetics:
 
     def test_mutate_add_connection(self, genome):
         neat.INNOVATION = 100
-        connex = genome.mutate_add_connection(3, 7, 0.5, neat.Generation())
+        connex = genome.mutate_add_connection(3, 7, 0.5, neat.Generation([]))
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 3
         assert connex.output_node == 7
@@ -124,13 +124,13 @@ class TestGenetics:
 
     def test_mutate_add_connection_exists(self, genome):
         with pytest.raises(ValueError):
-            genome.mutate_add_connection(1, 8, 0.5, neat.Generation())
+            genome.mutate_add_connection(1, 8, 0.5, neat.Generation([]))
 
     def test_mutate_add_node(self, genome, caplog):
         # Try adding a new node between input node 1 and hidden node 1 (=id 8), which should be connection 1.
         old_connex = 1
         neat.INNOVATION = 100
-        node, connex1, connex2 = genome.mutate_add_node(old_connex, neat.Generation())
+        node, connex1, connex2 = genome.mutate_add_node(old_connex, neat.Generation([]))
         assert isinstance(node, neat.Node)
         assert isinstance(connex1, neat.Connection)
         assert isinstance(connex2, neat.Connection)
@@ -140,14 +140,16 @@ class TestGenetics:
         assert neat.get_connection(genome.connections, innovation=old_connex).enabled is False
 
     def test_breed(self, parent_genomes):
-        generation = neat.Generation()
+        generation = neat.Generation([])
         offspring = generation.breed(parent_genomes[0], parent_genomes[1])
         assert len(offspring.hidden_nodes) == 1
         assert len(offspring.connections) == 6
 
     def test_get_compatibility_distance(self, parent_genomes):
         # 2 excess, 3 disjoint, 1.2 weight, n_genes = 9
-        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1], True) == 1.0355555555555556
+        neat.NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = True
+        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1]) == 1.0355555555555556
 
     def test_get_compatibility_distance_no_normalise(self, parent_genomes):
-        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1], False) == 5.4799999999999995
+        neat.NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
+        assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1]) == 5.4799999999999995

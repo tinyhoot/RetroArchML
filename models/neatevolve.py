@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """An implementation of the NEATevolve algorithm, as described in:
 Stanley, K. O., & Miikkulainen, R. (2002). Evolving neural networks through augmenting topologies. Evolutionary
 computation, 10(2), 99-127. https://doi.org/10.1162/106365602320169811
@@ -33,16 +36,16 @@ class Connection:
         self.weight = weight
         self.enabled = True
 
+    def __eq__(self, other):
+        if not isinstance(other, Connection):
+            super.__eq__(self, other)
+        return self.innovation == other.innovation
+
     def copy(self) -> "Connection":
         """Get a full copy of this gene."""
         duplicate = Connection(self.input_node, self.output_node, self.innovation, self.weight)
         duplicate.enabled = self.enabled
         return duplicate
-
-    def __eq__(self, other):
-        if not isinstance(other, Connection):
-            super.__eq__(self, other)
-        return self.innovation == other.innovation
 
 
 class Node:
@@ -67,6 +70,9 @@ class Genome:
         self.output_nodes: List[Node] = []
         self.connections: List[Connection] = []
         self.fitness = 0
+
+    def __len__(self):
+        return len(self.connections)
 
     def mutate_add_connection(self, input_node: int, output_node: int, weight: float, generation: "Generation") \
             -> Connection:
@@ -139,19 +145,18 @@ class Genome:
 
         return mutated_node, connection_to_node, connection_from_node
 
-    def __len__(self):
-        return len(self.connections)
-
 
 class Generation:
     """A collection of genomes representing a single generation of mutations."""
 
-    def __init__(self):
+    def __init__(self, genomes: List[Genome], previous_gen: "Generation" = None):
+        self.genomes = genomes
         # Connections this generation has added.
         self.mutated_connections: List[Connection] = []
         # Nodes this generation has added, along with the connection that they each split by being added.
         self.mutated_nodes: List[Tuple[Node, Connection]] = []
-        self.genomes: List[Genome] = []
+        self.species: List[Species] = []
+        self._speciate(previous_gen)
 
     def breed(self, first_parent: Genome, second_parent: Genome) -> Genome:
         """Combine two genomes to produce offspring inheriting their combined features.
@@ -220,6 +225,39 @@ class Generation:
 
         return None
 
+    def _speciate(self, previous_gen: "Generation" = None):
+        """Divide the population of this generation into a number of distinct species.
+
+        The speciation depends on the compatibility distance. Intended for just after a fresh generation is created.
+
+        :param previous_gen: If given, inherit existing species from the previous generation.
+        """
+        self.species = []
+        genomes = self.genomes.copy()
+
+        # If inheriting from the previous generation, choose a random member of each species to represent it this gen.
+        if previous_gen and previous_gen.species:
+            for prev_species in previous_gen.species:
+                representative = RANDOM.choice(prev_species.population)
+                spec = Species(representative)
+                self.species.append(spec)
+                # The chosen genome can be assumed to always be present in the list kept by the generation, otherwise
+                # something has gone wrong.
+                genomes.remove(representative)
+
+        # Assign every genome in this generation that was not chosen as a representative to a species.
+        for genome in genomes:
+            assigned = False
+            for spec in self.species:
+                if get_compatibility_distance(genome, spec.representative) <= COMPATIBILITY_THRESHOLD:
+                    spec.add(genome)
+                    assigned = True
+                    break
+            # If the genome did not fit in an existing species, create a new one for it.
+            if not assigned:
+                new_spec = Species(genome)
+                self.species.append(new_spec)
+
 
 class Species:
     """A collection of genomes with low compatibility distance and a representative genome to measure against."""
@@ -227,6 +265,13 @@ class Species:
     def __init__(self, representative: Genome):
         self.population = [representative]
         self.representative = representative
+
+    def __len__(self) -> int:
+        return len(self.population)
+
+    def add(self, genome: Genome):
+        """Add a genome to the population."""
+        self.population.append(genome)
 
     def get_adjusted_fitness(self, genome: Genome) -> float:
         """Get the fitness of a genome, adjusted for the general fitness of the rest of the population.
@@ -258,21 +303,19 @@ class Species:
         return fitness
 
 
-def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
-                               normalise_gene_size: bool = NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE) -> float:
+def get_compatibility_distance(first_genome: Genome, second_genome: Genome) -> float:
     """Calculate the compatibility distance between two genomes (network structures).
 
     The distance increases with excess and disjoint genes, as well as weight differences between matching genes.
 
     :param first_genome: The first genome.
     :param second_genome: The second genome.
-    :param normalise_gene_size: If False, n_genes is set to 1 for genomes consisting of < 20 genes.
     :return: A floating point value representing the compatibility distance.
     """
     # N is the number of genes of the larger genome.
     n_genes = max(len(first_genome), len(second_genome))
 
-    if not normalise_gene_size and n_genes < 20:
+    if not NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE and n_genes < 20:
         n_genes = 1
 
     # Count the total number of excess and disjoint genes.
