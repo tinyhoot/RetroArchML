@@ -6,7 +6,7 @@ computation, 10(2), 99-127. https://doi.org/10.1162/106365602320169811
 import logging
 import math
 from random import Random
-from typing import Tuple, Union, List, Sequence
+from typing import Iterable, Tuple, Union, List, Sequence
 
 LOG = logging.getLogger(__name__)
 RANDOM = Random()
@@ -19,6 +19,8 @@ NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
 COMPATIBILITY_THRESHOLD = 3.0           # The maximum distance between members of a species.
 DISABLED_GENE_REENABLE_CHANCE = 0.25
 TOTAL_POPULATION_SIZE = 150
+
+INNOVATION = 1
 
 
 class Connection:
@@ -37,13 +39,23 @@ class Connection:
         duplicate.enabled = self.enabled
         return duplicate
 
+    def __eq__(self, other):
+        if not isinstance(other, Connection):
+            super.__eq__(self, other)
+        return self.innovation == other.innovation
+
 
 class Node:
     """A node gene, connected to other nodes by connection genes."""
 
-    def __init__(self, node_id: int):
-        self.id = node_id
-        self.value = 0.5
+    def __init__(self, innovation: int):
+        self.innovation = innovation
+        self.value = 0.0
+
+    def __eq__(self, other):
+        if not isinstance(other, Node):
+            super.__eq__(self, other)
+        return self.innovation == other.innovation
 
 
 class Genome:
@@ -56,100 +68,89 @@ class Genome:
         self.connections: List[Connection] = []
         self.fitness = 0
 
-    def get_connection(self, input_node: int = None, output_node: int = None, innovation: int = None) \
-            -> Union[Connection, None]:
-        """Get the connection gene with either the specified innovation number or the in- and output nodes.
+    def mutate_add_connection(self, input_node: int, output_node: int, weight: float, generation: "Generation") \
+            -> Connection:
+        """Add a new connection linking two previously unconnected nodes.
 
-        :param innovation: The innovation number to look for.
-        :param input_node: The id of an input node to look for. Only usable with output_node.
-        :param output_node: The id of an output node to look for. Only usable with input_node.
-        :return: A connection gene, or None if the connection does not exist.
-        :raise ValueError: If the given parameters are faulty or incomplete.
+        :param input_node: The id of the input node of the new connection.
+        :param output_node: The id of the output node of the new connection.
+        :param weight: The weight of the new connection.
+        :param generation: The generation this genome is a part of.
+        :return: A connection gene containing the newly mutated connection.
         """
-        LOG.debug(f"Finding connection in:{input_node}, out:{output_node}, innovation:{innovation}")
-        if innovation is not None:
-            for connection in self.connections:
-                if connection.innovation == innovation:
-                    return connection
-            # No such connection exists.
-            # _log.warning(f"No such connection with innovation {innovation}")
-            return None
-
-        if input_node is not None and output_node is not None:
-            for connection in self.connections:
-                if connection.input_node == input_node and connection.output_node == output_node:
-                    return connection
-            # _log.warning(f"No such connection with in:{input_node}, out:{output_node}")
-            return None
-
-        # No parameters were given, or the parameters were somehow faulty.
-        LOG.warning(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
-                    f" output: {output_node}")
-        raise ValueError(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
-                         f" output: {output_node}")
-
-    def get_size(self) -> int:
-        """Get the total number of all connection genes in this genome."""
-        return len(self.connections)
-
-    def mutate_add_connection(self, in_node: int, out_node: int, innovation: int, weight: float) -> Connection:
-        """Add a new connection linking two previously unconnected nodes."""
+        global INNOVATION
         # Check if the new connection already exists
-        connex = self.get_connection(input_node=in_node, output_node=out_node)
+        connex = get_connection(self.connections, input_node=input_node, output_node=output_node)
         if connex is not None:
-            raise ValueError(f"A connection already exists between in: {in_node}, out: {out_node}")
+            raise ValueError(f"A connection already exists between in: {input_node}, out: {output_node}")
 
-        mutated_connection = Connection(in_node, out_node, innovation, weight)
+        mutated_connection = Connection(input_node, output_node, INNOVATION, weight)
 
-        # TODO: Check if connection matches another genome's mutation, do not update innovation number if so.
+        # Only update the global innovation number if this mutation has not occurred in this generation.
+        dupl_innov = generation.check_for_duplicate_connection(input_node, output_node)
+        if dupl_innov:
+            mutated_connection.innovation = dupl_innov
+        else:
+            INNOVATION += 1
         self.connections.append(mutated_connection)
-        LOG.debug(f"Created mutated connection <in:{in_node}, out:{out_node}, weight:{weight}, inno:{innovation}>.")
+        LOG.debug(f"Created mutated connection <in:{input_node}, out:{output_node}, weight:{weight}, inno:{INNOVATION}>.")
 
         return mutated_connection
 
-    def mutate_add_node(self, connection_innovation: int, new_node_id: int, global_innovation: int) \
+    def mutate_add_node(self, connection_innovation: int, generation: "Generation") \
             -> Tuple[Node, Connection, Connection]:
         """Add a new node splitting an existing connection in two.
 
         :param connection_innovation: The innovation number of the old connection to be split up.
-        :param new_node_id: The id of the new node to be created.
-        :param global_innovation: The current global innovation number.
+        :param generation: The generation this genome belongs to.
         :return: A tuple containing the new node and connections.
         """
-        # Ensure the global innovation number is not already in use for some reason.
-        connex = self.get_connection(innovation=global_innovation)
-        if connex is not None:
-            raise ValueError(f"The global innovation number {global_innovation} is already in use!")
-
+        global INNOVATION
         # Store the old connection's information.
-        old_connection = self.get_connection(innovation=connection_innovation)
+        old_connection = get_connection(self.connections, innovation=connection_innovation)
         old_input = old_connection.input_node
         old_output = old_connection.output_node
 
+        # Check whether this mutation already occurred this generation.
+        dupl_id = generation.check_for_duplicate_node(old_connection)
+        if dupl_id:
+            node_id = dupl_id
+        else:
+            node_id = INNOVATION
+            INNOVATION += 1
+
         # Create the new intervening node.
-        mutated_node = Node(new_node_id)
+        mutated_node = Node(node_id)
         self.hidden_nodes.append(mutated_node)
 
         # Disable the old connection and replace it with two new ones.
         old_connection.enabled = False
-        connection_to_node = Connection(old_input, new_node_id, global_innovation, 1.0)
-        connection_from_node = Connection(new_node_id, old_output, global_innovation + 1, old_connection.weight)
-
-        # TODO: Check if new connections match another genome's mutations, do not update innovation if they do.
+        if dupl_id:
+            connection_to_node = get_connection(generation.mutated_connections, old_input, node_id)
+            connection_from_node = get_connection(generation.mutated_connections, node_id, old_output)
+        else:
+            connection_to_node = Connection(old_input, node_id, INNOVATION, 1.0)
+            connection_from_node = Connection(node_id, old_output, INNOVATION + 1, old_connection.weight)
+            INNOVATION += 2
 
         self.connections.append(connection_to_node)
         self.connections.append(connection_from_node)
-        LOG.debug(f"Created mutated node with id {new_node_id} between nodes {old_input} and {old_output}.")
+        LOG.debug(f"Created mutated node with id {node_id} between nodes {old_input} and {old_output}.")
 
         return mutated_node, connection_to_node, connection_from_node
+
+    def __len__(self):
+        return len(self.connections)
 
 
 class Generation:
     """A collection of genomes representing a single generation of mutations."""
 
     def __init__(self):
-        self.global_innovation = 1
+        # Connections this generation has added.
         self.mutated_connections: List[Connection] = []
+        # Nodes this generation has added, along with the connection that they each split by being added.
+        self.mutated_nodes: List[Tuple[Node, Connection]] = []
         self.genomes: List[Genome] = []
 
     def breed(self, first_parent: Genome, second_parent: Genome) -> Genome:
@@ -174,7 +175,7 @@ class Generation:
 
         # Connection genes are inherited randomly if they match, or from the fitter parent if they do not.
         for fit_connection in fit_parent.connections:
-            bad_connection = bad_parent.get_connection(innovation=fit_connection.innovation)
+            bad_connection = get_connection(bad_parent.connections, innovation=fit_connection.innovation)
 
             if bad_connection is not None:
                 # Gene matches, inherit randomly.
@@ -194,7 +195,7 @@ class Generation:
 
         return offspring
 
-    def check_for_duplicate_innovation(self, input_node: int, output_node: int) -> Union[int, None]:
+    def check_for_duplicate_connection(self, input_node: int, output_node: int) -> Union[int, None]:
         """Check whether a connection between two nodes has already been created by any genome in the generation.
 
         :param input_node: The input node of the connection.
@@ -204,6 +205,18 @@ class Generation:
         for connection in self.mutated_connections:
             if connection.input_node == input_node and connection.output_node == output_node:
                 return connection.innovation
+
+        return None
+
+    def check_for_duplicate_node(self, split_connection: Connection) -> Union[int, None]:
+        """Check whether a new node has already been created by any genome in the generation.
+
+        :param split_connection: The connection gene that is split by the addition of the new node.
+        :return: None if the mutation is unique, otherwise the id of the previously mutated node.
+        """
+        for node, connection in self.mutated_nodes:
+            if connection == split_connection:
+                return node.innovation
 
         return None
 
@@ -257,7 +270,7 @@ def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
     :return: A floating point value representing the compatibility distance.
     """
     # N is the number of genes of the larger genome.
-    n_genes = max(first_genome.get_size(), second_genome.get_size())
+    n_genes = max(len(first_genome), len(second_genome))
 
     if not normalise_gene_size and n_genes < 20:
         n_genes = 1
@@ -270,6 +283,40 @@ def get_compatibility_distance(first_genome: Genome, second_genome: Genome,
     weight_distance = WEIGHT_DIFFERENCE_COEFFICIENT * weight
 
     return excess_distance + disjoint_distance + weight_distance
+
+
+def get_connection(connections: Iterable[Connection], input_node: int = None, output_node: int = None,
+                   innovation: int = None) -> Union[Connection, None]:
+    """Get the connection gene with either the specified innovation number or the in- and output nodes.
+
+    :param connections: The iterable of connection genes to search.
+    :param input_node: The id of an input node to look for. Only usable with output_node.
+    :param output_node: The id of an output node to look for. Only usable with input_node.
+    :param innovation: The innovation number to look for.
+    :return: A connection gene, or None if the connection does not exist.
+    :raise ValueError: If the given parameters are faulty or incomplete.
+    """
+    LOG.debug(f"Finding connection in:{input_node}, out:{output_node}, innovation:{innovation}")
+    if innovation is not None:
+        for connection in connections:
+            if connection.innovation == innovation:
+                return connection
+        # No such connection exists.
+        # _log.warning(f"No such connection with innovation {innovation}")
+        return None
+
+    if input_node is not None and output_node is not None:
+        for connection in connections:
+            if connection.input_node == input_node and connection.output_node == output_node:
+                return connection
+        # _log.warning(f"No such connection with in:{input_node}, out:{output_node}")
+        return None
+
+    # No parameters were given, or the parameters were somehow faulty.
+    LOG.warning(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
+                f" output: {output_node}")
+    raise ValueError(f"No connections match the parameters innovation: {innovation}, input: {input_node},"
+                     f" output: {output_node}")
 
 
 def get_gene_differences(first_genome: Genome, second_genome: Genome) -> Tuple[int, int, float]:
@@ -288,8 +335,8 @@ def get_gene_differences(first_genome: Genome, second_genome: Genome) -> Tuple[i
         # Does this gene exist in just one set, or both?
         if innovation in first_genome_innovations & second_genome_innovations:
             # The genes are matching. Calculate weight difference.
-            first_gene = first_genome.get_connection(innovation=innovation)
-            second_gene = second_genome.get_connection(innovation=innovation)
+            first_gene = get_connection(first_genome.connections, innovation=innovation)
+            second_gene = get_connection(second_genome.connections, innovation=innovation)
             weight += math.fabs(first_gene.weight - second_gene.weight)
         else:
             # The gene is either excess or disjoint. Find out which one it is.

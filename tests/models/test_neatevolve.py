@@ -28,12 +28,12 @@ class TestGenetics:
         global_innovation = 1
         for in_node in test_genome.input_nodes:
             for out_node in test_genome.hidden_nodes:
-                connex = neat.Connection(in_node.id, out_node.id, global_innovation)
+                connex = neat.Connection(in_node.innovation, out_node.innovation, global_innovation)
                 test_genome.connections.append(connex)
                 global_innovation += 1
         for in_node in test_genome.hidden_nodes:
             for out_node in test_genome.output_nodes:
-                connex = neat.Connection(in_node.id, out_node.id, global_innovation)
+                connex = neat.Connection(in_node.innovation, out_node.innovation, global_innovation)
                 test_genome.connections.append(connex)
                 global_innovation += 1
 
@@ -86,36 +86,37 @@ class TestGenetics:
         return first_parent, second_parent
 
     def test_get_connection_innovation(self, genome):
-        connex = genome.get_connection(innovation=8)
+        connex = neat.get_connection(genome.connections, innovation=8)
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 3
         assert connex.output_node == 9
 
     def test_get_connection_innovation_out_of_range(self, genome):
-        assert genome.get_connection(innovation=0) is None
-        assert genome.get_connection(innovation=100) is None
+        assert neat.get_connection(genome.connections, innovation=0) is None
+        assert neat.get_connection(genome.connections, innovation=100) is None
 
     def test_get_connection_nodes(self, genome):
-        connex = genome.get_connection(input_node=1, output_node=8)
+        connex = neat.get_connection(genome.connections, input_node=1, output_node=8)
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 1
         assert connex.output_node == 8
 
     def test_get_connection_nodes_no_connection(self, genome):
-        assert genome.get_connection(input_node=1, output_node=2) is None
-        assert genome.get_connection(input_node=5, output_node=6) is None
-        assert genome.get_connection(input_node=8, output_node=1) is None
+        assert neat.get_connection(genome.connections, input_node=1, output_node=2) is None
+        assert neat.get_connection(genome.connections, input_node=5, output_node=6) is None
+        assert neat.get_connection(genome.connections, input_node=8, output_node=1) is None
 
     def test_get_connection_bad_param(self, genome):
         with pytest.raises(ValueError):
-            genome.get_connection()
+            neat.get_connection(genome.connections)
         with pytest.raises(ValueError):
-            genome.get_connection(input_node=3)
+            neat.get_connection(genome.connections, input_node=3)
         with pytest.raises(ValueError):
-            genome.get_connection(output_node=8)
+            neat.get_connection(genome.connections, output_node=8)
 
     def test_mutate_add_connection(self, genome):
-        connex = genome.mutate_add_connection(3, 7, 100, 0.5)
+        neat.INNOVATION = 100
+        connex = genome.mutate_add_connection(3, 7, 0.5, neat.Generation())
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 3
         assert connex.output_node == 7
@@ -123,24 +124,20 @@ class TestGenetics:
 
     def test_mutate_add_connection_exists(self, genome):
         with pytest.raises(ValueError):
-            genome.mutate_add_connection(1, 8, 100, 0.5)
+            genome.mutate_add_connection(1, 8, 0.5, neat.Generation())
 
     def test_mutate_add_node(self, genome, caplog):
         # Try adding a new node between input node 1 and hidden node 1 (=id 8), which should be connection 1.
         old_connex = 1
-        new_node_id = 11
-        node, connex1, connex2 = genome.mutate_add_node(old_connex, new_node_id, 100)
+        neat.INNOVATION = 100
+        node, connex1, connex2 = genome.mutate_add_node(old_connex, neat.Generation())
         assert isinstance(node, neat.Node)
         assert isinstance(connex1, neat.Connection)
         assert isinstance(connex2, neat.Connection)
-        assert node.id == new_node_id
-        assert connex1.input_node == old_connex and connex1.output_node == new_node_id
-        assert connex2.input_node == new_node_id and connex2.output_node == 8
-        assert genome.get_connection(innovation=old_connex).enabled is False
-
-    def test_mutate_add_note_already_used(self, genome):
-        with pytest.raises(ValueError):
-            genome.mutate_add_node(1, 11, 10)
+        assert node.innovation == 100
+        assert connex1.input_node == old_connex and connex1.output_node == 100
+        assert connex2.input_node == 100 and connex2.output_node == 8
+        assert neat.get_connection(genome.connections, innovation=old_connex).enabled is False
 
     def test_breed(self, parent_genomes):
         generation = neat.Generation()
