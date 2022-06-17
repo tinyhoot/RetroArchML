@@ -19,9 +19,14 @@ DISJOINT_GENES_COEFFICIENT = 1.0
 WEIGHT_DIFFERENCE_COEFFICIENT = 0.4
 NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
 
+CHAMPION_THRESHOLD = 5                  # The minimum size for a species to have a champion.
 COMPATIBILITY_THRESHOLD = 3.0           # The maximum distance between members of a species.
 DISABLED_GENE_REENABLE_CHANCE = 0.25
-TOTAL_POPULATION_SIZE = 150
+MUTATE_WEIGHTS_CHANCE = 0.8
+MUTATE_WEIGHTS_UNIFORMLY_CHANCE = 0.9
+
+MAX_POPULATION_SIZE = 150
+STEP_SIZE = 0.1
 
 INNOVATION = 1
 
@@ -145,11 +150,22 @@ class Genome:
 
         return mutated_node, connection_to_node, connection_from_node
 
+    def mutate_weights(self):
+        """Mutate this genome's connection weights."""
+        for connection in self.connections:
+            # There is a small chance the weight is not perturbed uniformly, but assigned a random value instead.
+            if RANDOM.random() < MUTATE_WEIGHTS_UNIFORMLY_CHANCE:
+                connection.weight += RANDOM.random() * STEP_SIZE
+                connection.weight = min(connection.weight, 1.0)
+            else:
+                connection.weight = RANDOM.random()
+
 
 class Generation:
     """A collection of genomes representing a single generation of mutations."""
 
-    def __init__(self, genomes: List[Genome], previous_gen: "Generation" = None):
+    def __init__(self, epoch: int, genomes: List[Genome], previous_gen: "Generation" = None):
+        self.epoch = epoch
         self.genomes = genomes
         # Connections this generation has added.
         self.mutated_connections: List[Connection] = []
@@ -225,6 +241,21 @@ class Generation:
 
         return None
 
+    def mutate(self):
+        """Process and potentially mutate every genome in this generation."""
+        if not self.species:
+            self._speciate()
+
+        for species in self.species:
+            for genome in species.population:
+                # The champion of any species large enough to have one is not disturbed.
+                if genome is species.champion:
+                    continue
+                # Mutate the genome's connection weights.
+                if RANDOM.random() < MUTATE_WEIGHTS_CHANCE:
+                    genome.mutate_weights()
+                    # TODO
+
     def _speciate(self, previous_gen: "Generation" = None):
         """Divide the population of this generation into a number of distinct species.
 
@@ -257,6 +288,7 @@ class Generation:
             if not assigned:
                 new_spec = Species(genome)
                 self.species.append(new_spec)
+        LOG.debug(f"Divided population of generation {self.epoch} into {len(self.species)} species.")
 
 
 class Species:
@@ -265,6 +297,7 @@ class Species:
     def __init__(self, representative: Genome):
         self.population = [representative]
         self.representative = representative
+        self.champion: Genome = None
 
     def __len__(self) -> int:
         return len(self.population)
@@ -272,6 +305,18 @@ class Species:
     def add(self, genome: Genome):
         """Add a genome to the population."""
         self.population.append(genome)
+
+    def choose_champion(self) -> Union[Genome|None]:
+        """If the species is large enough, choose its best-performing member as champion.
+
+        :return: A Genome if a champion was found, None if not.
+        """
+        if len(self) < CHAMPION_THRESHOLD:
+            self.champion = None
+            return None
+
+        self.champion = get_fittest(self.population)
+        return self.champion
 
     def get_adjusted_fitness(self, genome: Genome) -> float:
         """Get the fitness of a genome, adjusted for the general fitness of the rest of the population.
