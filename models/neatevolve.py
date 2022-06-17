@@ -22,8 +22,11 @@ NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
 CHAMPION_THRESHOLD = 5                  # The minimum size for a species to have a champion.
 COMPATIBILITY_THRESHOLD = 3.0           # The maximum distance between members of a species.
 DISABLED_GENE_REENABLE_CHANCE = 0.25
+MUTATE_ADD_NODE_CHANCE = 0.03
+MUTATE_ADD_CONNECTION_CHANCE = 0.05
 MUTATE_WEIGHTS_CHANCE = 0.8
 MUTATE_WEIGHTS_UNIFORMLY_CHANCE = 0.9
+PRUNE_LOW_PERFORMERS_FRACTION = 0.25
 
 MAX_POPULATION_SIZE = 150
 STEP_SIZE = 0.1
@@ -79,7 +82,7 @@ class Genome:
     def __len__(self):
         return len(self.connections)
 
-    def mutate_add_connection(self, input_node: int, output_node: int, weight: float, generation: "Generation") \
+    def mutate_add_connection(self, input_node: int, output_node: int, generation: "Generation", weight: float = 0.5) \
             -> Connection:
         """Add a new connection linking two previously unconnected nodes.
 
@@ -155,8 +158,7 @@ class Genome:
         for connection in self.connections:
             # There is a small chance the weight is not perturbed uniformly, but assigned a random value instead.
             if RANDOM.random() < MUTATE_WEIGHTS_UNIFORMLY_CHANCE:
-                connection.weight += RANDOM.random() * STEP_SIZE
-                connection.weight = min(connection.weight, 1.0)
+                connection.weight += (RANDOM.random() * 2 - 1) * STEP_SIZE
             else:
                 connection.weight = RANDOM.random()
 
@@ -164,8 +166,8 @@ class Genome:
 class Generation:
     """A collection of genomes representing a single generation of mutations."""
 
-    def __init__(self, epoch: int, genomes: List[Genome], previous_gen: "Generation" = None):
-        self.epoch = epoch
+    def __init__(self, genomes: List[Genome], previous_gen: "Generation" = None):
+        self.epoch = 0 if not previous_gen else previous_gen.epoch + 1
         self.genomes = genomes
         # Connections this generation has added.
         self.mutated_connections: List[Connection] = []
@@ -173,6 +175,39 @@ class Generation:
         self.mutated_nodes: List[Tuple[Node, Connection]] = []
         self.species: List[Species] = []
         self._speciate(previous_gen)
+
+    def advance_epoch(self) -> "Generation":
+        """Advance to the next generation."""
+        # Set up generation, Speciate: During init()
+        # Mutate.
+        self.mutate()
+
+        # Evaluate fitness.
+        # TODO: Callback to retroarch, let every genome try to play the level.
+        map(lambda s: s.choose_champion(), self.species)
+
+        # Assign max population size to each species based on fitness.
+        self.assign_offspring()
+        # Prune low-performing members of each species.
+        map(lambda s: s.prune(), self.species)
+
+        # Breed. Only the champions of each species 'survive', every other genome is a child.
+        next_generation = [spec.champion for spec in self.species if spec.champion is not None]
+        # Limit breeding to each species, only as many children as it earned.
+        for spec in self.species:
+            for i in range(spec.max_population):
+                # Choose parents randomly from remaining population.
+                parent1 = RANDOM.choice(spec.population)
+                parent2 = RANDOM.choice(spec.population)
+                next_generation.append(self.breed(parent1, parent2))
+
+        return Generation(next_generation, self)
+
+    def assign_offspring(self):
+        """Assign a maximum number of offspring to each species based on its total fitness relative to all others."""
+        generation_fitness = sum(map(lambda x: x.get_population_fitness(), self.species))
+        for spec in self.species:
+            spec.max_population = math.floor((spec.fitness / generation_fitness) * MAX_POPULATION_SIZE)
 
     def breed(self, first_parent: Genome, second_parent: Genome) -> Genome:
         """Combine two genomes to produce offspring inheriting their combined features.
@@ -254,7 +289,15 @@ class Generation:
                 # Mutate the genome's connection weights.
                 if RANDOM.random() < MUTATE_WEIGHTS_CHANCE:
                     genome.mutate_weights()
-                    # TODO
+                # Mutate the genome's nodes.
+                if RANDOM.random() < MUTATE_ADD_NODE_CHANCE:
+                    genome.mutate_add_node(RANDOM.choice(genome.connections).innovation, self)
+                # Mutate the genome's connections.
+                if RANDOM.random() < MUTATE_ADD_CONNECTION_CHANCE:
+                    in_node = RANDOM.choice(genome.input_nodes + genome.hidden_nodes).innovation
+                    out_node = RANDOM.choice(genome.hidden_nodes + genome.output_nodes).innovation
+                    genome.mutate_add_connection(in_node, out_node, self)
+        LOG.debug(f"Mutated all genomes for generation {self.epoch}")
 
     def _speciate(self, previous_gen: "Generation" = None):
         """Divide the population of this generation into a number of distinct species.
@@ -266,15 +309,21 @@ class Generation:
         self.species = []
         genomes = self.genomes.copy()
 
-        # If inheriting from the previous generation, choose a random member of each species to represent it this gen.
+        # If inheriting from the previous generation, choose the best member of each species to represent it this gen.
         if previous_gen and previous_gen.species:
             for prev_species in previous_gen.species:
-                representative = RANDOM.choice(prev_species.population)
-                spec = Species(representative)
+                if prev_species.champion:
+                    representative = prev_species.champion
+                else:
+                    representative = RANDOM.choice(prev_species.population)
+                spec = Species(prev_species.id, representative)
                 self.species.append(spec)
                 # The chosen genome can be assumed to always be present in the list kept by the generation, otherwise
                 # something has gone wrong.
                 genomes.remove(representative)
+        else:
+            spec = Species(0, genomes.pop(0))
+            self.species.append(spec)
 
         # Assign every genome in this generation that was not chosen as a representative to a species.
         for genome in genomes:
@@ -286,7 +335,7 @@ class Generation:
                     break
             # If the genome did not fit in an existing species, create a new one for it.
             if not assigned:
-                new_spec = Species(genome)
+                new_spec = Species(self.species[-1].id + 1, genome)
                 self.species.append(new_spec)
         LOG.debug(f"Divided population of generation {self.epoch} into {len(self.species)} species.")
 
@@ -294,10 +343,13 @@ class Generation:
 class Species:
     """A collection of genomes with low compatibility distance and a representative genome to measure against."""
 
-    def __init__(self, representative: Genome):
+    def __init__(self, species_id: int, representative: Genome):
+        self.id = species_id
         self.population = [representative]
         self.representative = representative
         self.champion: Genome = None
+        self.fitness = 0.0
+        self.max_population = 0
 
     def __len__(self) -> int:
         return len(self.population)
@@ -306,16 +358,15 @@ class Species:
         """Add a genome to the population."""
         self.population.append(genome)
 
-    def choose_champion(self) -> Union[Genome|None]:
+    def choose_champion(self) -> Genome:
         """If the species is large enough, choose its best-performing member as champion.
 
-        :return: A Genome if a champion was found, None if not.
+        Choose a random genome if the species is not large enough for a proper champion.
         """
         if len(self) < CHAMPION_THRESHOLD:
-            self.champion = None
-            return None
-
-        self.champion = get_fittest(self.population)
+            self.champion = RANDOM.choice(self.population)
+        else:
+            self.champion = get_fittest(self.population)
         return self.champion
 
     def get_adjusted_fitness(self, genome: Genome) -> float:
@@ -344,8 +395,18 @@ class Species:
         fitness = 0.0
         for organism in self.population:
             fitness += self.get_adjusted_fitness(organism)
+        self.fitness = fitness
 
         return fitness
+
+    def prune(self):
+        """Prune the lowest performing fraction of members of the species."""
+        # Sort the population by fitness, best performers first.
+        self.population.sort(key=lambda g: self.get_adjusted_fitness(g), reverse=True)
+        prune_num = math.floor(len(self) * PRUNE_LOW_PERFORMERS_FRACTION)
+        if prune_num > 0:
+            self.population = self.population[:-prune_num]
+        LOG.debug(f"Pruned population of species {self.id} by {prune_num} members.")
 
 
 def get_compatibility_distance(first_genome: Genome, second_genome: Genome) -> float:
