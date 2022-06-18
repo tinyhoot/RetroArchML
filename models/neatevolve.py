@@ -5,7 +5,7 @@
 Stanley, K. O., & Miikkulainen, R. (2002). Evolving neural networks through augmenting topologies. Evolutionary
 computation, 10(2), 99-127. https://doi.org/10.1162/106365602320169811
 """
-
+import copy
 import logging
 import math
 from random import Random
@@ -321,7 +321,7 @@ class Generation:
                 # The chosen genome can be assumed to always be present in the list kept by the generation, otherwise
                 # something has gone wrong.
                 genomes.remove(representative)
-        else:
+        elif genomes:
             spec = Species(0, genomes.pop(0))
             self.species.append(spec)
 
@@ -524,6 +524,39 @@ def get_fittest(genomes: Sequence[Genome]) -> Genome:
             fittest = RANDOM.choice((candidate, fittest))
 
     return fittest
+
+
+def setup(input_size: int, output_size: int) -> Generation:
+    """Set up a network structure for training.
+
+    :param input_size: The size of the input layer.
+    :param output_size: The size of the output layer.
+    """
+    global INNOVATION
+    # A basic genome with only input and output nodes, and all of them interconnected.
+    base_genome = Genome()
+    for i in range(input_size):
+        node = Node(INNOVATION)
+        INNOVATION += 1
+        base_genome.input_nodes.append(node)
+    for i in range(output_size):
+        node = Node(INNOVATION)
+        INNOVATION += 1
+        base_genome.output_nodes.append(node)
+    for in_node in base_genome.input_nodes:
+        for out_node in base_genome.output_nodes:
+            connection = Connection(in_node.innovation, out_node.innovation, INNOVATION)
+            INNOVATION += 1
+            base_genome.connections.append(connection)
+
+    # Add an independent deep copy of the basic genome to the generation until the max population size is met.
+    population = []
+    for i in range(MAX_POPULATION_SIZE):
+        genome = copy.deepcopy(base_genome)
+        population.append(genome)
+
+    return Generation(population)
+
 
 
 def sigmoid(x: float) -> float:

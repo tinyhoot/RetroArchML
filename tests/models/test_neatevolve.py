@@ -116,7 +116,7 @@ class TestGenetics:
 
     def test_mutate_add_connection(self, genome):
         neat.INNOVATION = 100
-        connex = genome.mutate_add_connection(3, 7, 0.5, neat.Generation([]))
+        connex = genome.mutate_add_connection(3, 7, neat.Generation([]))
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 3
         assert connex.output_node == 7
@@ -124,7 +124,7 @@ class TestGenetics:
 
     def test_mutate_add_connection_exists(self, genome):
         with pytest.raises(ValueError):
-            genome.mutate_add_connection(1, 8, 0.5, neat.Generation([]))
+            genome.mutate_add_connection(1, 8, neat.Generation([]))
 
     def test_mutate_add_node(self, genome, caplog):
         # Try adding a new node between input node 1 and hidden node 1 (=id 8), which should be connection 1.
@@ -153,3 +153,16 @@ class TestGenetics:
     def test_get_compatibility_distance_no_normalise(self, parent_genomes):
         neat.NORMALISE_COMPAT_DISTANCE_FOR_GENE_SIZE = False
         assert neat.get_compatibility_distance(parent_genomes[0], parent_genomes[1]) == 5.4799999999999995
+
+    def test_setup(self):
+        in_size = 5
+        out_size = 3
+        neat.MAX_POPULATION_SIZE = 25
+        generation = neat.setup(in_size, out_size)
+        assert len(generation.genomes) == 25
+        assert generation.genomes[0] is not generation.genomes[1]
+        genome = generation.genomes[0]
+        assert len(genome.input_nodes) == in_size
+        assert len(genome.output_nodes) == out_size
+        assert len(genome.connections) == in_size * out_size
+
