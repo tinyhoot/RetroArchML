@@ -238,6 +238,75 @@ class Genome:
             node.value = None
 
 
+class Species:
+    """A collection of genomes with low compatibility distance and a representative genome to measure against."""
+
+    def __init__(self, species_id: int, representative: Genome):
+        self.id = species_id
+        self.population = [representative]
+        self.representative = representative
+        self.champion: Genome = None
+        self.fitness = 0.0
+        self.max_population = 0
+
+    def __len__(self) -> int:
+        return len(self.population)
+
+    def add(self, genome: Genome):
+        """Add a genome to the population."""
+        self.population.append(genome)
+
+    def choose_champion(self) -> Genome:
+        """If the species is large enough, choose its best-performing member as champion.
+
+        Choose a random genome if the species is not large enough for a proper champion.
+        """
+        if len(self) < CHAMPION_THRESHOLD:
+            self.champion = RANDOM.choice(self.population)
+        else:
+            self.champion = get_fittest(self.population)
+        return self.champion
+
+    def get_adjusted_fitness(self, genome: Genome) -> float:
+        """Get the fitness of a genome, adjusted for the general fitness of the rest of the population.
+
+        This is a form of explicit fitness sharing; each organism must share its fitness with the rest of its
+        ecological niche.
+
+        :return: This genome's fitness adjusted for the population.
+        :raise ValueError: If the given genome is not part of the species.
+        """
+        if genome not in self.population:
+            raise ValueError("Given genome is not part of this species' population!")
+
+        # The actual function for adjusted fitness is a fair bit more complex than this, but in a speciated population
+        # the denominator reduces to the population size.
+        return genome.fitness / len(self.population)
+
+    def get_population_fitness(self) -> float:
+        """Get the overall fitness of the population.
+
+        This is equal to the sum of adjusted fitnesses of all member organisms.
+
+        :return: The population fitness.
+        """
+        fitness = 0.0
+        for organism in self.population:
+            fitness += self.get_adjusted_fitness(organism)
+        self.fitness = fitness
+
+        return fitness
+
+    def prune(self):
+        """Prune the lowest performing fraction of members of the species."""
+        # Sort the population by fitness, best performers first.
+        self.population.sort(key=lambda g: self.get_adjusted_fitness(g), reverse=True)
+        prune_num = math.floor(len(self) * PRUNE_LOW_PERFORMERS_FRACTION)
+        if prune_num > 0:
+            self.population = self.population[:-prune_num]
+        LOG.debug(f"Pruned population of species {self.id} by {prune_num} members.")
+
+
 class Generation:
     """A collection of genomes representing a single generation of mutations."""
 
@@ -284,7 +353,8 @@ class Generation:
         for spec in self.species:
             spec.max_population = math.floor((spec.fitness / generation_fitness) * MAX_POPULATION_SIZE)
 
-    def breed(self, first_parent: Genome, second_parent: Genome) -> Genome:
+    @staticmethod
+    def breed(first_parent: Genome, second_parent: Genome) -> Genome:
         """Combine two genomes to produce offspring inheriting their combined features.
 
         Disjoint or excess genes are inherited from the fitter parent.
@@ -413,75 +483,6 @@ class Generation:
                 new_spec = Species(self.species[-1].id + 1, genome)
                 self.species.append(new_spec)
         LOG.debug(f"Divided population of generation {self.epoch} into {len(self.species)} species.")
-
-
-class Species:
-    """A collection of genomes with low compatibility distance and a representative genome to measure against."""
-
-    def __init__(self, species_id: int, representative: Genome):
-        self.id = species_id
-        self.population = [representative]
-        self.representative = representative
-        self.champion: Genome = None
-        self.fitness = 0.0
-        self.max_population = 0
-
-    def __len__(self) -> int:
-        return len(self.population)
-
-    def add(self, genome: Genome):
-        """Add a genome to the population."""
-        self.population.append(genome)
-
-    def choose_champion(self) -> Genome:
-        """If the species is large enough, choose its best-performing member as champion.
-
-        Choose a random genome if the species is not large enough for a proper champion.
-        """
-        if len(self) < CHAMPION_THRESHOLD:
-            self.champion = RANDOM.choice(self.population)
-        else:
-            self.champion = get_fittest(self.population)
-        return self.champion
-
-    def get_adjusted_fitness(self, genome: Genome) -> float:
-        """Get the fitness of a genome, adjusted for the general fitness of the rest of the population.
-
-        This is a form of explicit fitness sharing; each organism must share its fitness with the rest of its
-        ecological niche.
-
-        :return: This genome's fitness adjusted for the population.
-        :raise ValueError: If the given genome is not part of the species.
-        """
-        if genome not in self.population:
-            raise ValueError("Given genome is not part of this species' population!")
-
-        # The actual function for adjusted fitness is a fair bit more complex than this, but in a speciated population
-        # the denominator reduces to the population size.
-        return genome.fitness / len(self.population)
-
-    def get_population_fitness(self) -> float:
-        """Get the overall fitness of the population.
-
-        This is equal to the sum of adjusted fitnesses of all member organisms.
-
-        :return: The population fitness.
-        """
-        fitness = 0.0
-        for organism in self.population:
-            fitness += self.get_adjusted_fitness(organism)
-        self.fitness = fitness
-
-        return fitness
-
-    def prune(self):
-        """Prune the lowest performing fraction of members of the species."""
-        # Sort the population by fitness, best performers first.
-        self.population.sort(key=lambda g: self.get_adjusted_fitness(g), reverse=True)
-        prune_num = math.floor(len(self) * PRUNE_LOW_PERFORMERS_FRACTION)
-        if prune_num > 0:
-            self.population = self.population[:-prune_num]
-        LOG.debug(f"Pruned population of species {self.id} by {prune_num} members.")
 
 
 def get_compatibility_distance(first_genome: Genome, second_genome: Genome) -> float:
