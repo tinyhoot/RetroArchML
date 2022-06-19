@@ -9,7 +9,7 @@ import copy
 import logging
 import math
 from random import Random
-from typing import Iterable, Tuple, Union, List, Sequence
+from typing import Iterable, Tuple, Union, List, Sequence, Generator
 
 LOG = logging.getLogger(__name__)
 RANDOM = Random()
@@ -62,7 +62,7 @@ class Node:
     def __init__(self, innovation: int):
         self.innovation = innovation
         self.incoming = []  # Track the innovation numbers of all incoming connections.
-        self.value = 0.0
+        self.value: float = None
 
     def __eq__(self, other):
         if not isinstance(other, Node):
@@ -91,6 +91,28 @@ class Genome:
 
     def __len__(self):
         return len(self.connections)
+
+    def forward_pass(self, features: Iterable[float]) -> Tuple[float]:
+        """Perform a forward pass through the model.
+
+        This method assumes that, during setup, input_nodes were created first, immediately followed by output_nodes
+        such that all IDs of nodes on the hidden layer are bigger than those of nodes on the in- or output layer.
+
+        :param features: An iterable of values which must be of the same size as the genome's input_nodes.
+        :raise ValueError: If the size of the features parameter does not match the length of input_nodes.
+        :return: A tuple of length output_nodes containing the final value of each node.
+        """
+        # Assign the values of the feature vector to the input nodes.
+        for node, feature in zip(self.input_nodes, features, strict=True):
+            node.value = feature
+
+        # Process every output node, and all nodes it depends on, recursively.
+        output = []
+        for out_node in self.output_nodes:
+            output.append(self._process_node(out_node))
+
+        self._reset_node_values()
+        return tuple(output)
 
     def get_node(self, innovation: int) -> Union[Node, None]:
         """Get the node with the specified innovation number.
@@ -193,6 +215,27 @@ class Genome:
                 connection.weight += (RANDOM.random() * 2 - 1) * STEP_SIZE
             else:
                 connection.weight = RANDOM.random()
+
+    def _process_node(self, node: Node) -> float:
+        """Recursively calculate the value of this node and all the ones it depends on."""
+        result = 0.0
+        for connection_id in node.incoming:
+            connex = get_connection(self.connections, innovation=connection_id)
+            input_node = self.get_node(connex.input_node)
+            if not input_node:
+                raise ValueError(f"Input node with id {connex.input_node} was None")
+            # Ensure the input node has previously had its value calculated.
+            if input_node.value is None:
+                self._process_node(input_node)
+            result += connex.weight * input_node.value
+
+        node.value = sigmoid(result)
+        return node.value
+
+    def _reset_node_values(self):
+        """Reset all previously calculated node values to their original state."""
+        for node in (self.input_nodes + self.output_nodes + self.hidden_nodes):
+            node.value = None
 
 
 class Generation:

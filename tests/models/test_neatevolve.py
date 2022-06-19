@@ -25,16 +25,18 @@ class TestGenetics:
             test_genome.hidden_nodes.append(node)
 
         # Add connections between the layers.
-        global_innovation = 1
+        global_innovation = 11
         for in_node in test_genome.input_nodes:
             for out_node in test_genome.hidden_nodes:
                 connex = neat.Connection(in_node.innovation, out_node.innovation, global_innovation)
                 test_genome.connections.append(connex)
+                out_node.add_incoming(connex)
                 global_innovation += 1
         for in_node in test_genome.hidden_nodes:
             for out_node in test_genome.output_nodes:
                 connex = neat.Connection(in_node.innovation, out_node.innovation, global_innovation)
                 test_genome.connections.append(connex)
+                out_node.add_incoming(connex)
                 global_innovation += 1
 
         return test_genome
@@ -86,7 +88,7 @@ class TestGenetics:
         return first_parent, second_parent
 
     def test_get_connection_innovation(self, genome):
-        connex = neat.get_connection(genome.connections, innovation=8)
+        connex = neat.get_connection(genome.connections, innovation=18)
         assert isinstance(connex, neat.Connection)
         assert connex.input_node == 3
         assert connex.output_node == 9
@@ -145,15 +147,15 @@ class TestGenetics:
             genome.mutate_add_connection(1, 8, neat.Generation([]))
 
     def test_mutate_add_node(self, genome, caplog):
-        # Try adding a new node between input node 1 and hidden node 1 (=id 8), which should be connection 1.
-        old_connex = 1
+        # Try adding a new node between input node 1 and hidden node 1 (=id 8), which should be connection 11.
+        old_connex = 11
         neat.INNOVATION = 100
         node, connex1, connex2 = genome.mutate_add_node(old_connex, neat.Generation([]))
         assert isinstance(node, neat.Node)
         assert isinstance(connex1, neat.Connection)
         assert isinstance(connex2, neat.Connection)
         assert node.innovation == 100
-        assert connex1.input_node == old_connex and connex1.output_node == 100
+        assert connex1.input_node == 1 and connex1.output_node == 100
         assert connex2.input_node == 100 and connex2.output_node == 8
         assert neat.get_connection(genome.connections, innovation=old_connex).enabled is False
 
@@ -162,6 +164,26 @@ class TestGenetics:
         offspring = generation.breed(parent_genomes[0], parent_genomes[1])
         assert len(offspring.hidden_nodes) == 1
         assert len(offspring.connections) == 6
+
+    def test_process_node(self, genome):
+        features = [2, 4, 6, 8, 10]
+        target = neat.sigmoid(15)
+        for i in range(len(features)):
+            genome.input_nodes[i].value = features[i]
+        assert genome._process_node(genome.hidden_nodes[0]) == target
+
+    def test_process_node_recursive(self, genome):
+        features = [2, 4, 6, 8, 10]
+        target = neat.sigmoid(1.5)
+        for i in range(len(features)):
+            genome.input_nodes[i].value = features[i]
+        assert genome._process_node(genome.output_nodes[0]) == target
+
+    def test_process_node_bad_connection(self, genome):
+        features = [2, 4, 6, 8, 10]
+        genome.connections[0].input_node = 200
+        with pytest.raises(ValueError):
+            genome._process_node(genome.hidden_nodes[0])
 
     def test_get_compatibility_distance(self, parent_genomes):
         # 2 excess, 3 disjoint, 1.2 weight, n_genes = 9
