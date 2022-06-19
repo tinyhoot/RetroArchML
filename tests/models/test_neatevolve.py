@@ -114,6 +114,24 @@ class TestGenetics:
         with pytest.raises(ValueError):
             neat.get_connection(genome.connections, output_node=8)
 
+    def test_node_add_incoming_connection(self):
+        node = neat.Node(1)
+        connection = neat.Connection(0, 1, 2)
+        node.add_incoming(connection)
+        assert len(node.incoming) == 1
+        assert node.incoming[0] == 2
+
+    def test_node_add_incoming_int(self):
+        node = neat.Node(1)
+        node.add_incoming(2)
+        assert len(node.incoming) == 1
+        assert node.incoming[0] == 2
+
+    def test_node_add_incoming_bad_type(self):
+        node = neat.Node(1)
+        with pytest.raises(TypeError):
+            node.add_incoming("Connection five")
+
     def test_mutate_add_connection(self, genome):
         neat.INNOVATION = 100
         connex = genome.mutate_add_connection(3, 7, neat.Generation([]))

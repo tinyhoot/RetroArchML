@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""An implementation of the NEATevolve algorithm, as described in:
+"""An implementation of the NEAT algorithm, as described in:
 Stanley, K. O., & Miikkulainen, R. (2002). Evolving neural networks through augmenting topologies. Evolutionary
 computation, 10(2), 99-127. https://doi.org/10.1162/106365602320169811
 """
@@ -61,12 +61,22 @@ class Node:
 
     def __init__(self, innovation: int):
         self.innovation = innovation
+        self.incoming = []  # Track the innovation numbers of all incoming connections.
         self.value = 0.0
 
     def __eq__(self, other):
         if not isinstance(other, Node):
             super.__eq__(self, other)
         return self.innovation == other.innovation
+
+    def add_incoming(self, connection: Union[Connection, int]):
+        """Add an incoming connection to this node."""
+        if isinstance(connection, Connection):
+            self.incoming.append(connection.innovation)
+        elif isinstance(connection, int):
+            self.incoming.append(connection)
+        else:
+            raise TypeError(f"Parameter connection must be of type Connection or int, was {type(connection)}")
 
 
 class Genome:
@@ -81,6 +91,22 @@ class Genome:
 
     def __len__(self):
         return len(self.connections)
+
+    def get_node(self, innovation: int) -> Union[Node, None]:
+        """Get the node with the specified innovation number.
+
+        :return: The node with the requested number, or None if it does not exist.
+        """
+        for node in self.input_nodes:
+            if node.innovation == innovation:
+                return node
+        for node in self.hidden_nodes:
+            if node.innovation == innovation:
+                return node
+        for node in self.output_nodes:
+            if node.innovation == innovation:
+                return node
+        return None
 
     def mutate_add_connection(self, input_node: int, output_node: int, generation: "Generation", weight: float = 0.5) \
             -> Connection:
@@ -99,6 +125,8 @@ class Genome:
             raise ValueError(f"A connection already exists between in: {input_node}, out: {output_node}")
 
         mutated_connection = Connection(input_node, output_node, INNOVATION, weight)
+        node = self.get_node(output_node)
+        node.incoming.append(mutated_connection.innovation)
 
         # Only update the global innovation number if this mutation has not occurred in this generation.
         dupl_innov = generation.check_for_duplicate_connection(input_node, output_node)
@@ -146,6 +174,10 @@ class Genome:
             connection_to_node = Connection(old_input, node_id, INNOVATION, 1.0)
             connection_from_node = Connection(node_id, old_output, INNOVATION + 1, old_connection.weight)
             INNOVATION += 2
+
+        # Add the incoming connections to the outgoing nodes.
+        mutated_node.add_incoming(connection_to_node)
+        self.get_node(old_output).add_incoming(connection_from_node)
 
         self.connections.append(connection_to_node)
         self.connections.append(connection_from_node)
@@ -547,6 +579,7 @@ def setup(input_size: int, output_size: int) -> Generation:
         for out_node in base_genome.output_nodes:
             connection = Connection(in_node.innovation, out_node.innovation, INNOVATION)
             INNOVATION += 1
+            out_node.add_incoming(connection)
             base_genome.connections.append(connection)
 
     # Add an independent deep copy of the basic genome to the generation until the max population size is met.
@@ -556,7 +589,6 @@ def setup(input_size: int, output_size: int) -> Generation:
         population.append(genome)
 
     return Generation(population)
-
 
 
 def sigmoid(x: float) -> float:
