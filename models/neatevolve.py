@@ -151,9 +151,9 @@ class Genome:
         node.incoming.append(mutated_connection.innovation)
 
         # Only update the global innovation number if this mutation has not occurred in this generation.
-        dupl_innov = generation.check_for_duplicate_connection(input_node, output_node)
+        dupl_innov = get_connection(generation.mutated_connections, input_node, output_node)
         if dupl_innov:
-            mutated_connection.innovation = dupl_innov
+            mutated_connection.innovation = dupl_innov.innovation
         else:
             INNOVATION += 1
         self.connections.append(mutated_connection)
@@ -395,19 +395,6 @@ class Generation:
             offspring.connections.append(inherited_gene)
 
         return offspring
-
-    def check_for_duplicate_connection(self, input_node: int, output_node: int) -> Union[int, None]:
-        """Check whether a connection between two nodes has already been created by any genome in the generation.
-
-        :param input_node: The input node of the connection.
-        :param output_node: The output node of the connection.
-        :return: The innovation number of the duplicate connection, or None if the connection is unique.
-        """
-        for connection in self.mutated_connections:
-            if connection.input_node == input_node and connection.output_node == output_node:
-                return connection.innovation
-
-        return None
 
     def check_for_duplicate_node(self, split_connection: Connection) -> Union[int, None]:
         """Check whether a new node has already been created by any genome in the generation.

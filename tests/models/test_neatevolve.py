@@ -109,6 +109,15 @@ class TestNode:
 
 class TestGenome:
 
+    @pytest.mark.parametrize("node_id", [2, 6, 9])
+    def test_get_node(self, genome, node_id):
+        result = genome.get_node(node_id)
+        assert result is not None
+        assert result.innovation == node_id
+
+    def test_get_node_bad_id(self, genome):
+        assert genome.get_node(1000) is None
+
     def test_mutate_add_connection(self, genome):
         neat.INNOVATION = 100
         connex = genome.mutate_add_connection(3, 7, neat.Generation([]))
@@ -163,6 +172,18 @@ class TestGeneration:
         assert len(offspring.hidden_nodes) == 1
         assert len(offspring.connections) == 6
 
+    def test_check_duplicate_node(self):
+        generation = neat.Generation([])
+        conn1 = neat.Connection(1, 6, 11)
+        node1 = neat.Node(12)
+        conn2 = neat.Connection(2, 6, 13)
+        node2 = neat.Node(14)
+        generation.mutated_nodes.append((node1, conn1))
+        generation.mutated_nodes.append((node2, conn2))
+
+        t_con = neat.Connection(1, 6, 11)
+        assert generation.check_for_duplicate_node(t_con) == 12
+
 
 class TestModule:
 
@@ -203,6 +224,10 @@ class TestModule:
             neat.get_connection(genome.connections, input_node=3)
         with pytest.raises(ValueError):
             neat.get_connection(genome.connections, output_node=8)
+
+    def test_get_gene_differences(self, parent_genomes):
+        target = (2, 3, 1.1999999999999997)
+        assert neat.get_gene_differences(parent_genomes[0], parent_genomes[1]) == target
 
     def test_setup(self):
         in_size = 5
